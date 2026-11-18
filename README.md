@@ -1,80 +1,93 @@
 # skillup
 
-A terminal dashboard for updating AI agent skills you already have. Skillup
-is written in Go and uses Git to check the upstream sources.
+Run `skillup` to see which AI agent skills you have, where they live, and
+which ones have updates. Skillup is written in Go and checks the source with Git.
 
 ## Install
 
-Install with Go 1.25 or newer. Git must be on your PATH at runtime.
+[Homebrew](https://github.com/M1chlCZ/homebrew-tap) puts `skillup` on your PATH.
+
+```sh
+brew install m1chlcz/tap/skillup
+skillup
+```
+
+You can also build it with Go 1.25 or newer. Keep Git on your PATH.
 
 ```sh
 go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.1.0
 skillup
 ```
 
-Go installs the command in `GOBIN` or, by default, in `$(go env GOPATH)/bin`.
-Add that directory to your PATH if your shell cannot find the command.
-The terminal interface is tested on macOS. Linux is supported through the same
-Go and Git commands, including inside WSL.
+Go puts the binary in `GOBIN` or `$(go env GOPATH)/bin` by default. Add
+that directory to your PATH if your shell can't find `skillup`.
+The terminal interface was tested on macOS. The same Go and Git commands
+work on Linux, including in WSL.
 
-## Use
+## Using skillup
 
-| Command | What it does |
+| Command | What happens |
 | --- | --- |
-| `skillup` | Open the dashboard. Updated upstream sources appear at the top. |
-| `skillup --check` | Print the inventory and update status for each skill. Redirected output also uses this mode by default. |
-| `skillup --apply` | Apply eligible updates and print the result. |
+| `skillup` | Opens the dashboard, with available updates at the top. |
+| `skillup --check` | Prints the installed skills and their status. Redirecting the output gives you the same text view. |
+| `skillup --apply` | Applies eligible updates and prints what changed. |
 
-Use **↑/↓** or **j/k** to select a skill and see its source, revision and paths.
-Press **r** to refresh, **u** to review the update prompt and **y** to apply,
-or **q** to quit.
+Move with **↑/↓** or **j/k**. The selected row shows the source, revision
+and install paths. Press **r** to check again, **u** to see the update prompt,
+**y** to apply, or **q** to quit.
 
-A skill linked into multiple agent folders appears once with all its locations.
-A linked Git bundle may show several skills with the same revision and status.
-Updating the bundle advances the checkout once.
+If two agents link to the same skill folder, you'll see one row with both
+paths. A Git checkout can also supply several skills. Those skills share a
+revision, and skillup advances their checkout once.
 
-## What Skillup can update
+## Which skills get updated?
 
-- **Vercel `skills` global GitHub installs.** Skillup reads the version 3 global
-  lock at `~/.agents/.skill-lock.json` or
-  `$XDG_STATE_HOME/skills/.skill-lock.json`. It uses the recorded Git tree to
-  verify installed files and compares the whole skill against the current
-  source branch. Pins, separate agent copies, symlinked canonical targets,
-  unrecoverable trees, and trees with symlinks or submodules are skipped.
-- **Linked Git checkouts.** A skill or a `skills/` directory linked to a Git
-  checkout can be updated when the current branch tracks a remote branch. Apply
-  checks that the checkout is clean and moves it only by fast-forward. For a
-  previously unseen remote revision, preview reports a difference and apply
-  verifies ancestry before merging.
-
-The inventory covers `~/.agents/skills`, `$CODEX_HOME/skills` (default
+Skillup looks in `~/.agents/skills`, `$CODEX_HOME/skills` (default
 `~/.codex/skills`), and `$CLAUDE_CONFIG_DIR/skills` (default
-`~/.claude/skills`). Manually copied skills, plugin caches, project-level
-installs, and installations managed by other installers are outside the update
-scope. A skipped status includes the reason. Git and filesystem errors return
-a nonzero exit status in command-line mode.
+`~/.claude/skills`). It updates two kinds of installs.
 
-Checks fetch upstream data into temporary directories. Applying a skill stages
-the new files before replacing the installed directory with a user-only copy. It keeps the original
-until the lockfile is saved and restores it if writing the lock fails. Run one
-installer at a time. After a forced interruption, an existing
-`~/.skillup.lock` directory blocks another apply. Once you confirm no update is
-running, inspect any `~/.agents/.skillup-*` staging directory for an `old`
-backup before removing the lock directory and rerunning the check.
+- Global GitHub installs from Vercel's `skills` CLI. Skillup reads the
+  version 3 lock at `~/.agents/.skill-lock.json` or
+  `$XDG_STATE_HOME/skills/.skill-lock.json`. It checks the installed files
+  against the recorded Git tree and compares the whole skill with the
+  current source branch. It skips pins, separate agent copies, symlinked
+  canonical targets, Git trees it can't reconstruct, and trees with
+  symlinks or submodules.
+- A skill or a `skills/` folder linked to a Git checkout. The checkout
+  needs a clean working tree and a branch that tracks a remote branch.
+  Skillup checks that Git can fast-forward before it moves the branch.
+  A preview shows when the remote revision differs, even if that revision
+  hasn't been fetched yet.
+
+Local edits stay in place. Updates also skip manually copied skills,
+plugin caches, project installs and installs managed by other tools.
+Check the status for the reason. Git and filesystem errors give the
+text command a nonzero exit status.
+
+### What happens on disk
+
+Checks fetch upstream data into temporary directories. During an update,
+skillup prepares the new files, then swaps in a folder accessible only to
+your user. It keeps the old folder until it saves the lockfile. If saving
+fails, skillup restores the old folder.
+
+Run one installer at a time. After a forced interruption, an existing
+`~/.skillup.lock` directory blocks another apply. First check that nothing
+is still running. Look in any `~/.agents/.skillup-*` staging directory
+for an `old` backup before you remove the lock directory and run another check.
 
 ## Installer compatibility research
 
-Agent Skills defines a directory format with optional metadata. Version and
-source tracking depend on the installer.
-[Agent Skills specification](https://agentskills.io/specification)
+A skill can carry optional metadata. Each installer decides where to track
+the source and version. [Agent Skills specification](https://agentskills.io/specification)
 
-| Installer | Where provenance lives | Update behavior |
+| Installer | Where it tracks the source | How it updates |
 | --- | --- | --- |
-| Vercel `npx skills` | User lock with source and Git tree, plus a separate project lock | `skills update -g` reinstalls changed global skills. [Global lock](https://github.com/vercel-labs/skills/blob/v1.9.0/src/skill-lock.ts) · [Commands](https://github.com/vercel-labs/skills/blob/main/docs/commands.md#skills-update) |
-| GitHub CLI `gh skill` | Shared version 3 lock and GitHub fields added to the installed `SKILL.md` | `gh skill update --dry-run` previews changes. Its release selection and local frontmatter belong to GitHub CLI. [Frontmatter](https://github.com/cli/cli/blob/v2.105.0/internal/skills/frontmatter/frontmatter.go) · [Update source](https://github.com/cli/cli/blob/v2.105.0/pkg/cmd/skills/update/update.go) |
-| Swift `skill` | `agents.json` and `agents.resolved`, including source and revision or digest | `skill update --scope user` previews, and `--apply` updates through its own state. [Lock format](https://github.com/agents-tools/core/blob/65df60ef97ff6d347b6944372a1b75de919313fe/Documentation/Architecture/State.md#lock) · [Commands](https://github.com/skill-cli/cli/blob/a59c92c892219280ff6db6d27ab56bb796fbff79/Documentation/Reference/CLI.md#update-restore-remove-and-initialize) |
-| Skild | Per-install `.skild/install.json` and an installer lock | `skild update` reinstalls from its recorded source. [Locations](https://github.com/Peiiii/skild/blob/42d63166c75842856337ff9624032959f0112edd/packages/core/src/paths.ts#L24-L87) · [Update source](https://github.com/Peiiii/skild/blob/42d63166c75842856337ff9624032959f0112edd/packages/core/src/lifecycle.ts#L694-L720) |
-| Codex `$skill-installer` | Copies skill folders into the Codex home, without an updater manifest | Existing destinations are refused. [Installer](https://github.com/openai/skills/blob/main/skills/.system/skill-installer/SKILL.md) |
+| Vercel `npx skills` | A user lock with the source and Git tree, plus a separate project lock | `skills update -g` reinstalls changed global skills. [Global lock](https://github.com/vercel-labs/skills/blob/v1.9.0/src/skill-lock.ts) · [Commands](https://github.com/vercel-labs/skills/blob/main/docs/commands.md#skills-update) |
+| GitHub CLI `gh skill` | The shared version 3 lock and GitHub fields in the installed `SKILL.md` | `gh skill update --dry-run` previews changes. GitHub CLI handles release selection and the local frontmatter. [Frontmatter](https://github.com/cli/cli/blob/v2.105.0/internal/skills/frontmatter/frontmatter.go) · [Update source](https://github.com/cli/cli/blob/v2.105.0/pkg/cmd/skills/update/update.go) |
+| Swift `skill` | `agents.json` and `agents.resolved`, with the source and a revision or digest | `skill update --scope user` previews changes. Add `--apply` to update using its own records. [Lock format](https://github.com/agents-tools/core/blob/65df60ef97ff6d347b6944372a1b75de919313fe/Documentation/Architecture/State.md#lock) · [Commands](https://github.com/skill-cli/cli/blob/a59c92c892219280ff6db6d27ab56bb796fbff79/Documentation/Reference/CLI.md#update-restore-remove-and-initialize) |
+| Skild | Each install has a `.skild/install.json` file, and Skild also keeps a lock | `skild update` reinstalls from the recorded source. [Locations](https://github.com/Peiiii/skild/blob/42d63166c75842856337ff9624032959f0112edd/packages/core/src/paths.ts#L24-L87) · [Update source](https://github.com/Peiiii/skild/blob/42d63166c75842856337ff9624032959f0112edd/packages/core/src/lifecycle.ts#L694-L720) |
+| Codex `$skill-installer` | It copies the folder into the Codex home without an updater manifest | It refuses to overwrite an existing destination. [Installer](https://github.com/openai/skills/blob/main/skills/.system/skill-installer/SKILL.md) |
 
 ## Development
 
