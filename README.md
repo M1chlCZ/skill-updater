@@ -91,6 +91,9 @@ the source and version. [Agent Skills specification](https://agentskills.io/spec
 
 ## Development
 
+The dashboard on the development branch uses Lip Gloss for its layout and
+Bubbles for the loading animation during checks and updates.
+
 ```sh
 go test ./...
 go vet ./...

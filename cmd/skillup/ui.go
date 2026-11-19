@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -18,6 +19,7 @@ type screen struct {
 	selected, width, height int
 	busy, confirm, applying bool
 	err                     error
+	activity                spinner.Model
 }
 
 type scanResult struct {
@@ -32,12 +34,34 @@ func (m screen) load(apply bool) tea.Cmd {
 	}
 }
 
-func (m screen) Init() tea.Cmd { return m.load(false) }
+func (m screen) Init() tea.Cmd {
+	return tea.Batch(m.activity.Tick, m.load(false))
+}
+
+func newActivity() spinner.Model {
+	activity := spinner.New(spinner.WithSpinner(spinner.Dot))
+	if _, noColor := os.LookupEnv("NO_COLOR"); !noColor {
+		activity.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	}
+	return activity
+}
+
+func (m screen) start(apply bool) (screen, tea.Cmd) {
+	m.busy, m.applying, m.err = true, apply, nil
+	m.activity = newActivity()
+	return m, tea.Batch(m.activity.Tick, m.load(apply))
+}
 
 func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+	case spinner.TickMsg:
+		if m.busy {
+			var cmd tea.Cmd
+			m.activity, cmd = m.activity.Update(msg)
+			return m, cmd
+		}
 	case scanResult:
 		if m.ctx.Err() != nil {
 			return m, tea.Quit
@@ -49,8 +73,7 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.confirm {
 			m.confirm = false
 			if key == "y" {
-				m.busy, m.applying = true, true
-				return m, m.load(true)
+				return m.start(true)
 			}
 			return m, nil
 		}
@@ -74,8 +97,7 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "end":
 			m.selected = max(0, len(m.rows)-1)
 		case "r":
-			m.busy, m.err = true, nil
-			return m, m.load(false)
+			return m.start(false)
 		case "u":
 			for _, row := range m.rows {
 				if row.status == available {
@@ -100,15 +122,19 @@ func (m screen) content() string {
 	if width == 0 {
 		width, height = 80, 24
 	}
-	lines := []string{"skillup"}
-	help := "↑/↓ select · r refresh · u update · q quit"
+	title := styled("skillup", lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")))
+	lines := []string{ansi.Truncate(title, width, "…")}
+	help := "↑/↓ select · r refresh · u update all · q quit"
 	switch {
 	case m.confirm:
-		help = "Apply available updates?  y apply · n cancel"
+		help = "Apply all available updates?  y apply · n cancel"
 	case m.applying:
-		help = "Applying updates…"
+		help = m.activity.View() + " Applying updates…"
 	case m.busy:
-		help = "Checking installed skills and sources… · q quit"
+		help = m.activity.View() + " Checking installed skills and sources… · q quit"
+		if m.ctx != nil && m.ctx.Err() != nil {
+			help = m.activity.View() + " Cancelling…"
+		}
 	}
 	lines = append(lines, ansi.Truncate(help, width, "…"))
 	if height < 3 || width < 12 {
@@ -151,7 +177,8 @@ func (m screen) content() string {
 	start := max(0, m.selected-count+1)
 	if count > 0 {
 		nameWidth := min(36, max(10, width-14))
-		lines = append(lines, ansi.Truncate("  "+column("Skill", nameWidth)+"Status      Location", width, "…"))
+		headers := "  " + column("Skill", nameWidth) + "Status      Location"
+		lines = append(lines, ansi.Truncate(styled(headers, lipgloss.NewStyle().Bold(true)), width, "…"))
 		for i := start; i < start+count; i++ {
 			row := m.rows[i]
 			var labels []string
@@ -159,14 +186,19 @@ func (m screen) content() string {
 				labels = append(labels, loc.label)
 			}
 			cursor := "  "
+			name := column(row.name, nameWidth)
 			if i == m.selected {
-				cursor = "› "
+				cursor = styled("› ", lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")))
+				name = styled(name, lipgloss.NewStyle().Bold(true).Underline(true))
 			}
-			line := cursor + column(row.name, nameWidth) + statusText(row.status) + strings.Join(labels, ", ")
+			line := cursor + name + statusText(row.status) + strings.Join(labels, ", ")
 			lines = append(lines, ansi.Truncate(line, width, "…"))
 		}
 	}
-	lines = append(lines, "")
+	lines = append(lines, styled(strings.Repeat("─", width), lipgloss.NewStyle().Foreground(lipgloss.Color("8"))))
+	if len(wrapped) > 0 {
+		wrapped[0] = styled(wrapped[0], lipgloss.NewStyle().Bold(true))
+	}
 	lines = append(lines, wrapped...)
 	return strings.Join(lines[:min(len(lines), height)], "\n")
 }
@@ -178,21 +210,25 @@ func column(text string, width int) string {
 
 func statusText(status string) string {
 	text := column(status, 12)
-	if _, noColor := os.LookupEnv("NO_COLOR"); noColor {
-		return text
-	}
-	var color int
+	var color string
 	switch status {
 	case available:
-		color = 33
+		color = "3"
 	case current, updated:
-		color = 32
+		color = "2"
 	case modified:
-		color = 35
+		color = "5"
 	case failed:
-		color = 31
+		color = "1"
 	default:
 		return text
 	}
-	return fmt.Sprintf("\x1b[%dm%s\x1b[0m", color, text)
+	return styled(text, lipgloss.NewStyle().Foreground(lipgloss.Color(color)))
+}
+
+func styled(text string, style lipgloss.Style) string {
+	if _, noColor := os.LookupEnv("NO_COLOR"); noColor {
+		return text
+	}
+	return style.Render(text)
 }
