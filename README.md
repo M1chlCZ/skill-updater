@@ -15,7 +15,7 @@ skillup
 You can also build it with Go 1.25 or newer. Keep Git on your PATH.
 
 ```sh
-go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.1.0
+go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.2.0
 skillup
 ```
 
@@ -91,7 +91,7 @@ the source and version. [Agent Skills specification](https://agentskills.io/spec
 
 ## Development
 
-The dashboard on the development branch uses Lip Gloss for its layout and
+The dashboard uses Lip Gloss for its layout and
 Bubbles for the loading animation during checks and updates.
 
 ```sh
