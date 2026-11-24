@@ -33,8 +33,14 @@ work on Linux, including in WSL.
 | `skillup --apply` | Applies eligible updates and prints what changed. |
 
 Move with **↑/↓** or **j/k**. The selected row shows the source, revision
-and install paths. Press **r** to check again, **u** to see the update prompt,
-**y** to apply, or **q** to quit.
+and install paths. Press **/** to search by skill name, location label, or
+install path. Search ignores case and updates as you type. Press **Enter**
+to keep the search and return to the list, or **Esc** to clear it. Press
+**f** to cycle through All, Available, and Modified.
+
+Press **r** to check again, **u** to open the update prompt, **y** to apply,
+or **q** to quit. The search and status filter only change what you see.
+The update prompt covers all eligible skills, including hidden rows.
 
 If two agents link to the same skill folder, you'll see one row with both
 paths. A Git checkout can also supply several skills. Those skills share a
@@ -92,7 +98,7 @@ the source and version. [Agent Skills specification](https://agentskills.io/spec
 ## Development
 
 The dashboard uses Lip Gloss for its layout and
-Bubbles for the loading animation during checks and updates.
+Bubbles for search input and the loading animation during checks and updates.
 
 ```sh
 go test ./...

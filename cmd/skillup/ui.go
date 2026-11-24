@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -16,10 +19,13 @@ type screen struct {
 	ctx                     context.Context
 	cancel                  context.CancelFunc
 	rows                    []*skill
-	selected, width, height int
+	selected                *skill
+	width, height           int
 	busy, confirm, applying bool
 	err                     error
 	activity                spinner.Model
+	search                  textinput.Model
+	filter                  string
 }
 
 type scanResult struct {
@@ -46,6 +52,62 @@ func newActivity() spinner.Model {
 	return activity
 }
 
+func newSearch() textinput.Model {
+	search := textinput.New()
+	search.Prompt = "/ "
+	search.Placeholder = "Name or location"
+	search.SetWidth(77)
+	styles := textinput.Styles{}
+	if _, noColor := os.LookupEnv("NO_COLOR"); !noColor {
+		styles.Focused.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+		styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+		styles.Blurred.Prompt = styles.Focused.Prompt
+	}
+	search.SetStyles(styles)
+	return search
+}
+
+func (m screen) visibleRows() []*skill {
+	query := strings.ToLower(strings.TrimSpace(m.search.Value()))
+	if query == "" && m.filter == "" {
+		return m.rows
+	}
+	matches := func(text string) bool {
+		return strings.Contains(strings.ToLower(text), query)
+	}
+	var rows []*skill
+	for _, row := range m.rows {
+		if m.filter != "" && row.status != m.filter {
+			continue
+		}
+		if matches(row.name) || slices.ContainsFunc(row.locations, func(loc location) bool {
+			return matches(loc.label) || matches(loc.path)
+		}) {
+			rows = append(rows, row)
+		}
+	}
+	return rows
+}
+
+func (m *screen) keepSelection() {
+	rows := m.visibleRows()
+	if len(rows) == 0 {
+		m.selected = nil
+	} else if !slices.Contains(rows, m.selected) {
+		m.selected = rows[0]
+	}
+}
+
+func (m screen) editSearch(msg tea.Msg) (screen, tea.Cmd) {
+	var cmd tea.Cmd
+	before := m.search.Value()
+	m.search, cmd = m.search.Update(msg)
+	if m.search.Value() != before {
+		m.keepSelection()
+	}
+	return m, cmd
+}
+
 func (m screen) start(apply bool) (screen, tea.Cmd) {
 	m.busy, m.applying, m.err = true, apply, nil
 	m.activity = newActivity()
@@ -56,6 +118,10 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		position := m.search.Position()
+		m.search.SetWidth(max(1, m.width-3))
+		m.search.CursorEnd()
+		m.search.SetCursor(position)
 	case spinner.TickMsg:
 		if m.busy {
 			var cmd tea.Cmd
@@ -67,7 +133,7 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		m.rows, m.err, m.busy, m.applying = msg.rows, msg.err, false, false
-		m.selected = 0
+		m.selected = nil
 	case tea.KeyPressMsg:
 		key := msg.String()
 		if m.confirm {
@@ -77,7 +143,7 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if (key == "q" || key == "ctrl+c") && !m.applying {
+		if (key == "ctrl+c" || key == "q" && !m.search.Focused()) && !m.applying {
 			if m.busy {
 				m.cancel()
 				return m, nil
@@ -87,15 +153,50 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.busy {
 			return m, nil
 		}
+		if key == "esc" {
+			m.search.Blur()
+			m.search.Reset()
+			m.keepSelection()
+			return m, nil
+		}
+		if m.search.Focused() {
+			if key == "enter" {
+				m.search.Blur()
+				return m, nil
+			}
+			return m.editSearch(msg)
+		}
 		switch key {
-		case "down", "j":
-			m.selected = max(0, min(m.selected+1, len(m.rows)-1))
-		case "up", "k":
-			m.selected = max(0, m.selected-1)
-		case "home":
-			m.selected = 0
-		case "end":
-			m.selected = max(0, len(m.rows)-1)
+		case "down", "j", "up", "k", "home", "end":
+			rows := m.visibleRows()
+			if len(rows) == 0 {
+				return m, nil
+			}
+			index := max(0, slices.Index(rows, m.selected))
+			switch key {
+			case "down", "j":
+				index = min(index+1, len(rows)-1)
+			case "up", "k":
+				index = max(0, index-1)
+			case "home":
+				index = 0
+			case "end":
+				index = len(rows) - 1
+			}
+			m.selected = rows[index]
+		case "/":
+			cmd := m.search.Focus()
+			return m, cmd
+		case "f":
+			switch m.filter {
+			case "":
+				m.filter = available
+			case available:
+				m.filter = modified
+			case modified:
+				m.filter = ""
+			}
+			m.keepSelection()
 		case "r":
 			return m.start(false)
 		case "u":
@@ -105,6 +206,10 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
+		}
+	default:
+		if m.search.Focused() {
+			return m.editSearch(msg)
 		}
 	}
 	return m, nil
@@ -124,10 +229,10 @@ func (m screen) content() string {
 	}
 	title := styled("skillup", lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")))
 	lines := []string{ansi.Truncate(title, width, "…")}
-	help := "↑/↓ select · r refresh · u update all · q quit"
+	help := "u update all · ↑/↓ select · r refresh · q quit"
 	switch {
 	case m.confirm:
-		help = "Apply all available updates?  y apply · n cancel"
+		help = "Update all? y/n"
 	case m.applying:
 		help = m.activity.View() + " Applying updates…"
 	case m.busy:
@@ -135,23 +240,49 @@ func (m screen) content() string {
 		if m.ctx != nil && m.ctx.Err() != nil {
 			help = m.activity.View() + " Cancelling…"
 		}
+	case m.search.Focused():
+		help = "↵ keep · esc clear"
 	}
 	lines = append(lines, ansi.Truncate(help, width, "…"))
 	if height < 3 || width < 12 {
 		return strings.Join(lines[:min(height, len(lines))], "\n")
 	}
+	if !m.busy {
+		filter := m.filter
+		if filter == "" {
+			filter = "All"
+		}
+		lines = append(lines, ansi.Truncate("f "+filter+" · / search", width, "…"))
+		if m.search.Focused() || m.search.Value() != "" {
+			lines = append(lines, ansi.Truncate(strings.TrimRight(m.search.View(), " "), width, "…"))
+		}
+	}
 	if m.err != nil {
 		lines = append(lines, ansi.Truncate(printable(m.err.Error()), width, "…"))
 	}
-	if len(m.rows) == 0 {
+	rows := m.visibleRows()
+	if len(rows) == 0 {
 		if !m.busy && m.err == nil {
-			lines = append(lines, "No user skills found")
+			message := "No user skills found"
+			if m.filter != "" || strings.TrimSpace(m.search.Value()) != "" {
+				message = "No matching skills"
+			}
+			lines = append(lines, ansi.Truncate(message, width, "…"))
 		}
-		return strings.Join(lines, "\n")
+		return strings.Join(lines[:min(len(lines), height)], "\n")
 	}
-	lines = append(lines, strings.Split(ansi.Hardwrap(summary(m.rows), width, false), "\n")...)
+	status := summary(rows)
+	if len(rows) != len(m.rows) {
+		status = fmt.Sprintf("%d of %d skills", len(rows), len(m.rows))
+	}
+	statusLines := strings.Split(ansi.Hardwrap(status, width, false), "\n")
+	if len(statusLines) > max(1, height-len(lines)-3) {
+		statusLines = []string{ansi.Truncate(status, width, "…")}
+	}
+	lines = append(lines, statusLines...)
 
-	row := m.rows[m.selected]
+	selected := max(0, slices.Index(rows, m.selected))
+	row := rows[selected]
 	details := []string{row.name + " · " + row.status + " · " + row.detail}
 	if row.source != "" {
 		details = append(details, "Source  "+row.source)
@@ -172,22 +303,22 @@ func (m screen) content() string {
 		wrapped = append(wrapped, strings.Split(ansi.Hardwrap(printable(detail), width, false), "\n")...)
 	}
 	room := max(0, height-len(lines)-2)
-	wrapped = wrapped[:min(len(wrapped), room/2+1)]
-	count := min(len(m.rows), max(0, room-len(wrapped)))
-	start := max(0, m.selected-count+1)
+	wrapped = wrapped[:min(len(wrapped), room/2)]
+	count := min(len(rows), room-len(wrapped))
+	start := max(0, selected-count+1)
 	if count > 0 {
 		nameWidth := min(36, max(10, width-14))
 		headers := "  " + column("Skill", nameWidth) + "Status      Location"
 		lines = append(lines, ansi.Truncate(styled(headers, lipgloss.NewStyle().Bold(true)), width, "…"))
 		for i := start; i < start+count; i++ {
-			row := m.rows[i]
+			row := rows[i]
 			var labels []string
 			for _, loc := range row.locations {
 				labels = append(labels, loc.label)
 			}
 			cursor := "  "
 			name := column(row.name, nameWidth)
-			if i == m.selected {
+			if i == selected {
 				cursor = styled("› ", lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")))
 				name = styled(name, lipgloss.NewStyle().Bold(true).Underline(true))
 			}

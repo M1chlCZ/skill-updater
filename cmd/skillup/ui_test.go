@@ -81,3 +81,88 @@ func TestScreenFitsNarrowTerminalWithoutColor(t *testing.T) {
 		}
 	}
 }
+
+func TestScreenSearchAndFilterNavigation(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	m := screen{search: newSearch(), rows: []*skill{
+		{name: "alpha", status: available, locations: []location{{"Codex", "/test/alpha"}}},
+		{name: "beta", status: modified, locations: []location{{"Agents", "/test/team/beta"}}},
+		{name: "gamma", status: available, locations: []location{{"Claude", "/test/gamma"}, {"Codex", "/test/team/gamma"}}},
+	}}
+	press := func(code rune, value string) {
+		t.Helper()
+		next, _ := m.Update(tea.KeyPressMsg{Code: code, Text: value})
+		m = next.(screen)
+	}
+	checkView := func(want ...string) {
+		t.Helper()
+		view := m.View().Content
+		for _, part := range want {
+			if !strings.Contains(view, part) {
+				t.Fatalf("missing %q in view:\n%s", part, view)
+			}
+		}
+	}
+	press(tea.KeyEnd, "")
+	press('f', "f")
+	checkView("f Available", "› gamma", "u update all")
+	press(tea.KeyUp, "")
+	checkView("› alpha")
+	press(tea.KeyDown, "")
+	checkView("› gamma")
+	press('/', "/")
+	press('T', "TEAM")
+	press(tea.KeyEnter, "")
+	checkView("/ TEAM", "› gamma")
+	if strings.Contains(m.View().Content, "alpha") {
+		t.Fatal("search must hide rows without a matching name or location")
+	}
+
+	press('f', "f")
+	checkView("f Modified", "› beta", "u update all")
+	press('u', "u")
+	checkView("Update all? y/n")
+	press('n', "n")
+	press('f', "f")
+	checkView("f All", "› beta")
+	press(tea.KeyEscape, "")
+	checkView("› beta")
+
+	press('/', "/")
+	press('A', "ALPHA")
+	press(tea.KeyEnter, "")
+	checkView("› alpha")
+	press('f', "f")
+	press('f', "f")
+	checkView("No matching skills")
+	press(tea.KeyDown, "")
+	press(tea.KeyEnd, "")
+	checkView("No matching skills")
+}
+
+func TestScreenSearchFitsNarrowTerminal(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	var m tea.Model = screen{search: newSearch(), rows: []*skill{{name: "demo", status: available}}}
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 20, Height: 8})
+	if view := m.View().Content; !strings.Contains(view, "› demo") || !strings.Contains(view, "u update all") {
+		t.Fatalf("narrow view must show the selected row and update scope:\n%s", view)
+	}
+	m, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m, _ = m.Update(tea.PasteMsg{Content: "dlouhý název · 日本語 · skillqru"})
+	view := m.View().Content
+	if !strings.Contains(view, "skillqru") || !strings.Contains(view, "No matching skills") {
+		t.Fatalf("missing query or empty state in narrow view:\n%s", view)
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) > 8 {
+		t.Fatalf("narrow search overflows vertically:\n%s", view)
+	}
+	// A monochrome search field still uses reverse video for its cursor.
+	cursorStyle := strings.NewReplacer("\x1b[7m", "", "\x1b[m", "", "\x1b[0m", "")
+	for _, line := range lines {
+		withoutCursor := cursorStyle.Replace(line)
+		if ansi.StringWidth(line) > 20 || strings.Contains(withoutCursor, "\x1b") {
+			t.Fatalf("narrow search overflows or uses color: %q", line)
+		}
+	}
+}
