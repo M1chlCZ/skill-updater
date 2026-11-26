@@ -22,6 +22,7 @@ type screen struct {
 	selected                *skill
 	width, height           int
 	busy, confirm, applying bool
+	checking                bool
 	err                     error
 	activity                spinner.Model
 	search                  textinput.Model
@@ -33,9 +34,35 @@ type scanResult struct {
 	err  error
 }
 
+type inventoryResult struct {
+	rows       []*skill
+	byLocation map[string]*skill
+	err        error
+}
+
+const (
+	checkingStatus  = "Checking"
+	uncheckedStatus = "Unchecked"
+)
+
 func (m screen) load(apply bool) tea.Cmd {
 	return func() tea.Msg {
-		rows, err := scan(m.ctx, m.cfg, apply)
+		if apply {
+			rows, err := scan(m.ctx, m.cfg, true)
+			return scanResult{rows, err}
+		}
+		rows, byLocation, err := inventory(m.ctx, m.cfg)
+		return inventoryResult{rows, byLocation, err}
+	}
+}
+
+func (m screen) check(local inventoryResult) tea.Cmd {
+	return func() tea.Msg {
+		lock, err := readLock(m.cfg.lock)
+		if err != nil {
+			return scanResult{local.rows, err}
+		}
+		rows, err := inspectSources(m.ctx, m.cfg, lock, local.rows, local.byLocation, false)
 		return scanResult{rows, err}
 	}
 }
@@ -77,7 +104,7 @@ func (m screen) visibleRows() []*skill {
 	}
 	var rows []*skill
 	for _, row := range m.rows {
-		if m.filter != "" && row.status != m.filter {
+		if m.filter != "" && row.status != m.filter && row.status != checkingStatus && row.status != uncheckedStatus {
 			continue
 		}
 		if matches(row.name) || slices.ContainsFunc(row.locations, func(loc location) bool {
@@ -98,6 +125,20 @@ func (m *screen) keepSelection() {
 	}
 }
 
+func (m *screen) setRows(rows []*skill) {
+	if selected := m.selected; selected != nil {
+		m.selected = nil
+		for _, row := range rows {
+			if row.path == selected.path && row.name == selected.name {
+				m.selected = row
+				break
+			}
+		}
+	}
+	m.rows = rows
+	m.keepSelection()
+}
+
 func (m screen) editSearch(msg tea.Msg) (screen, tea.Cmd) {
 	var cmd tea.Cmd
 	before := m.search.Value()
@@ -109,9 +150,23 @@ func (m screen) editSearch(msg tea.Msg) (screen, tea.Cmd) {
 }
 
 func (m screen) start(apply bool) (screen, tea.Cmd) {
-	m.busy, m.applying, m.err = true, apply, nil
+	m.busy, m.applying, m.checking, m.err = true, apply, false, nil
 	m.activity = newActivity()
 	return m, tea.Batch(m.activity.Tick, m.load(apply))
+}
+
+func (m screen) finish(result scanResult) (screen, tea.Cmd) {
+	if m.ctx.Err() != nil {
+		return m, tea.Quit
+	}
+	if result.err != nil && !m.applying {
+		for _, row := range result.rows {
+			row.mark(uncheckedStatus, "Could not complete the source check")
+		}
+	}
+	m.err, m.busy, m.applying, m.checking = result.err, false, false, false
+	m.setRows(result.rows)
+	return m, nil
 }
 
 func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -128,12 +183,25 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activity, cmd = m.activity.Update(msg)
 			return m, cmd
 		}
-	case scanResult:
+	case inventoryResult:
 		if m.ctx.Err() != nil {
 			return m, tea.Quit
 		}
-		m.rows, m.err, m.busy, m.applying = msg.rows, msg.err, false, false
-		m.selected = nil
+		if msg.err != nil {
+			return m.finish(scanResult{msg.rows, msg.err})
+		}
+		// Source checks mutate the inventory rows. The view uses its own copies.
+		rows := make([]*skill, len(msg.rows))
+		for i, row := range msg.rows {
+			preview := *row
+			preview.mark(checkingStatus, "Waiting for source status")
+			rows[i] = &preview
+		}
+		m.checking = true
+		m.setRows(rows)
+		return m, m.check(msg)
+	case scanResult:
+		return m.finish(msg)
 	case tea.KeyPressMsg:
 		key := msg.String()
 		if m.confirm {
@@ -150,7 +218,7 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Quit
 		}
-		if m.busy {
+		if m.applying || m.busy && m.ctx.Err() != nil {
 			return m, nil
 		}
 		if key == "esc" {
@@ -198,8 +266,13 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.keepSelection()
 		case "r":
-			return m.start(false)
+			if !m.busy {
+				return m.start(false)
+			}
 		case "u":
+			if m.busy {
+				return m, nil
+			}
 			for _, row := range m.rows {
 				if row.status == available {
 					m.confirm = true
@@ -236,10 +309,18 @@ func (m screen) content() string {
 	case m.applying:
 		help = m.activity.View() + " Applying updates…"
 	case m.busy:
-		help = m.activity.View() + " Checking installed skills and sources… · q quit"
-		if m.ctx != nil && m.ctx.Err() != nil {
-			help = m.activity.View() + " Cancelling…"
+		quit := "q quit"
+		if m.search.Focused() {
+			quit = "^C quit"
 		}
+		label := "Reading skills…"
+		if m.checking {
+			label = "Checking sources…"
+		}
+		if m.ctx != nil && m.ctx.Err() != nil {
+			label = "Cancelling…"
+		}
+		help = quit + " · " + m.activity.View() + " " + label
 	case m.search.Focused():
 		help = "↵ keep · esc clear"
 	}
@@ -247,12 +328,16 @@ func (m screen) content() string {
 	if height < 3 || width < 12 {
 		return strings.Join(lines[:min(height, len(lines))], "\n")
 	}
-	if !m.busy {
+	if !m.applying {
 		filter := m.filter
 		if filter == "" {
 			filter = "All"
 		}
-		lines = append(lines, ansi.Truncate("f "+filter+" · / search", width, "…"))
+		controls := "f " + filter + " · / search"
+		if m.busy && m.search.Focused() {
+			controls = "↵ keep · esc clear"
+		}
+		lines = append(lines, ansi.Truncate(controls, width, "…"))
 		if m.search.Focused() || m.search.Value() != "" {
 			lines = append(lines, ansi.Truncate(strings.TrimRight(m.search.View(), " "), width, "…"))
 		}
@@ -274,6 +359,8 @@ func (m screen) content() string {
 	status := summary(rows)
 	if len(rows) != len(m.rows) {
 		status = fmt.Sprintf("%d of %d skills", len(rows), len(m.rows))
+	} else if m.busy && !m.applying {
+		status = fmt.Sprintf("%d skills", len(rows))
 	}
 	statusLines := strings.Split(ansi.Hardwrap(status, width, false), "\n")
 	if len(statusLines) > max(1, height-len(lines)-3) {

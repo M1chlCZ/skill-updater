@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -59,7 +60,8 @@ func TestRefreshAnimatesUntilScanCompletes(t *testing.T) {
 	if nextTick == nil || next.View().Content == before {
 		t.Fatal("waiting screen should animate and schedule another frame")
 	}
-	next, _ = next.Update(batch[1]())
+	next, check := next.Update(batch[1]())
+	next, _ = next.Update(check())
 	after := next.View().Content
 	next, cmd = next.Update(tick)
 	if cmd != nil || next.View().Content != after {
@@ -164,5 +166,75 @@ func TestScreenSearchFitsNarrowTerminal(t *testing.T) {
 		if ansi.StringWidth(line) > 20 || strings.Contains(withoutCursor, "\x1b") {
 			t.Fatalf("narrow search overflows or uses color: %q", line)
 		}
+	}
+}
+
+func TestScreenShowsInventoryBeforeSourceCheck(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	home, repo := t.TempDir(), committedRepo(t)
+	cfg := config{
+		home: home, lock: filepath.Join(home, ".agents", ".skill-lock.json"),
+		codex: filepath.Join(home, ".codex"), claude: filepath.Join(home, ".claude"),
+	}
+	checkout := filepath.Join(home, "checkout")
+	fixtureGit(t, home, "clone", repo, checkout)
+	fixtureGit(t, checkout, "remote", "set-url", "origin", filepath.Join(home, "missing-remote"))
+	write(t, filepath.Join(home, ".agents", "skills", "alpha", "SKILL.md"), "local\n")
+	link := filepath.Join(cfg.codex, "skills", "demo")
+	if err := os.MkdirAll(filepath.Dir(link), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(checkout, "skills", "demo"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := screen{ctx: ctx, cancel: cancel, cfg: cfg, busy: true, activity: newActivity(), search: newSearch()}
+	batch := m.Init()().(tea.BatchMsg)
+	var next tea.Model = m
+	next, _ = next.Update(tea.WindowSizeMsg{Width: 32, Height: 12})
+	next, check := next.Update(batch[1]())
+	waiting := next.View().Content
+	if check == nil || !strings.Contains(waiting, "Checking") ||
+		!strings.Contains(waiting, "q quit") || !strings.Contains(waiting, "alpha") ||
+		strings.Contains(waiting, "Error") {
+		t.Fatalf("local rows should appear before the remote check:\n%s", waiting)
+	}
+	next, _ = next.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	if view := next.View().Content; !strings.Contains(view, "f Available") || !strings.Contains(view, "alpha") {
+		t.Fatalf("status filter should keep pending rows visible:\n%s", view)
+	}
+	next, _ = next.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	next, _ = next.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	next, _ = next.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if view := next.View().Content; !strings.Contains(view, "› demo") {
+		t.Fatalf("inventory should be navigable during the check:\n%s", view)
+	}
+	next, _ = next.Update(check())
+	finished := next.View().Content
+	if strings.Contains(finished, "Checking") || !strings.Contains(finished, "Error") ||
+		!strings.Contains(finished, "› demo") || !strings.Contains(finished, "alpha") {
+		t.Fatalf("source failure should retain local rows and selection:\n%s", finished)
+	}
+	for _, line := range strings.Split(finished, "\n") {
+		if ansi.StringWidth(line) > 32 || strings.Contains(line, "\x1b") {
+			t.Fatalf("narrow view overflows or uses color: %q", line)
+		}
+	}
+	next, _ = next.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	if view := next.View().Content; !strings.Contains(view, "› alpha") {
+		t.Fatalf("inventory should be navigable after the failure:\n%s", view)
+	}
+
+	next, refresh := next.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	next, check = next.Update(refresh().(tea.BatchMsg)[1]())
+	next, _ = next.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	_, quit := next.Update(check())
+	if ctx.Err() != context.Canceled || quit == nil {
+		t.Fatal("q should cancel the source check and quit")
+	}
+	if _, ok := quit().(tea.QuitMsg); !ok {
+		t.Fatal("a cancelled check should quit")
 	}
 }

@@ -66,6 +66,10 @@ func scan(ctx context.Context, cfg config, apply bool) ([]*skill, error) {
 	if err != nil {
 		return nil, err
 	}
+	return inspectSources(ctx, cfg, lock, rows, byLocation, apply)
+}
+
+func inspectSources(ctx context.Context, cfg config, lock *globalLock, rows []*skill, byLocation map[string]*skill, apply bool) ([]*skill, error) {
 	if apply {
 		runLock := filepath.Join(cfg.home, ".skillup.lock")
 		if err := os.Mkdir(runLock, 0700); err != nil {

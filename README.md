@@ -42,6 +42,11 @@ Press **r** to check again, **u** to open the update prompt, **y** to apply,
 or **q** to quit. The search and status filter only change what you see.
 The update prompt covers all eligible skills, including hidden rows.
 
+The dashboard lists local skills while it checks their sources. You can
+browse, search, or quit during the check. The status filter keeps rows
+visible while their status is pending. If a source fails, its error appears
+alongside the other results and the list stays available.
+
 If two agents link to the same skill folder, you'll see one row with both
 paths. A Git checkout can also supply several skills. Those skills share a
 revision, and skillup advances their checkout once.
