@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="812" height="529" viewBox="0 0 812 529" role="img" aria-label="skillup terminal dashboard showing installed AI agent skills and available updates">
+  <defs>
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="122%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#020617" flood-opacity="0.42"/>
+    </filter>
+    <clipPath id="win-clip">
+      <rect x="16" y="16" width="780" height="497" rx="12" ry="12"/>
+    </clipPath>
+  </defs>
+
+  <!-- Terminal window -->
+  <g filter="url(#shadow)">
+    <rect x="16" y="16" width="780" height="497" rx="12" ry="12" fill="#0f141e" stroke="#29354d" stroke-width="1"/>
+  </g>
+  <g clip-path="url(#win-clip)">
+    <rect x="16" y="16" width="780" height="38" fill="#171e2d"/>
+    <line x1="16" y1="54" x2="796" y2="54" stroke="#29354d" stroke-width="1"/>
+  </g>
+
+  <!-- macOS window controls -->
+  <circle cx="38" cy="35.0" r="6" fill="#ff5f56"/>
+  <circle cx="58" cy="35.0" r="6" fill="#ffbd2e"/>
+  <circle cx="78" cy="35.0" r="6" fill="#27c93f"/>
+  <text x="406.0" y="39.5" text-anchor="middle" fill="#8b98b8" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500">skillup — zsh</text>
+
+  <!-- Title, keybindings, filter & summary -->
+  <text x="42.0" y="87.0" fill="#56d4dd" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" font-weight="700" xml:space="preserve">skillup</text>
+  <text x="42.0" y="109.5" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">u update all · ↑/↓ select · r refresh · q quit</text>
+  <text x="42.0" y="132.0" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">f All · / search</text>
+  <text x="42.0" y="154.5" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">6 skills · 2 available · 2 current · 0 updated · 1 modified · 1 skipped · 0 errors</text>
+
+  <!-- Table header -->
+  <text x="58.3" y="187.0" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" font-weight="700" xml:space="preserve">Skill</text>
+  <text x="310.9" y="187.0" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" font-weight="700" xml:space="preserve">Status</text>
+  <text x="425.1" y="187.0" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" font-weight="700" xml:space="preserve">Location</text>
+
+  <!-- Skill rows -->
+  <rect x="32" y="193.5" width="748" height="22.5" rx="5" fill="#182235"/>
+  <text x="42.0" y="209.5" fill="#56d4dd" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" font-weight="700" xml:space="preserve">›</text>
+  <text x="58.3" y="209.5" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" font-weight="700" text-decoration="underline" xml:space="preserve">frontend-design</text>
+  <text x="310.9" y="209.5" fill="#f2cc60" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Available</text>
+  <text x="425.1" y="209.5" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Agents, Claude, Codex</text>
+  <text x="58.3" y="232.0" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">web-design-guidelines</text>
+  <text x="310.9" y="232.0" fill="#f2cc60" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Available</text>
+  <text x="425.1" y="232.0" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Agents, Claude</text>
+  <text x="58.3" y="254.5" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">go-review</text>
+  <text x="310.9" y="254.5" fill="#56d364" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Current</text>
+  <text x="425.1" y="254.5" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Codex</text>
+  <text x="58.3" y="277.0" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">skill-creator</text>
+  <text x="310.9" y="277.0" fill="#56d364" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Current</text>
+  <text x="425.1" y="277.0" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Agents, Claude, Codex</text>
+  <text x="58.3" y="299.5" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">postgres-tuning</text>
+  <text x="310.9" y="299.5" fill="#d2a8ff" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Modified</text>
+  <text x="425.1" y="299.5" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Claude</text>
+  <text x="58.3" y="322.0" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">local-notes</text>
+  <text x="310.9" y="322.0" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Skipped</text>
+  <text x="425.1" y="322.0" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Codex</text>
+
+  <!-- Detail divider -->
+  <line x1="42" y1="340.5" x2="770" y2="340.5" stroke="#303b52" stroke-width="1"/>
+
+  <!-- Selected skill details -->
+  <text x="42.0" y="366.5" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" font-weight="700" xml:space="preserve">frontend-design · Available · A newer Git tree is available</text>
+  <text x="42.0" y="389.0" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Source</text>
+  <text x="123.5" y="389.0" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">vercel-labs/agent-skills</text>
+  <text x="42.0" y="411.5" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Revision</text>
+  <text x="123.5" y="411.5" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">9c4a1d2e8f</text>
+  <text x="213.2" y="411.5" fill="#56d4dd" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" font-weight="700" xml:space="preserve">→</text>
+  <text x="229.5" y="411.5" fill="#f2cc60" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">3f8b7a1c04</text>
+  <text x="42.0" y="434.0" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Agents</text>
+  <text x="123.5" y="434.0" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">~/.agents/skills/frontend-design</text>
+  <text x="42.0" y="456.5" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Claude</text>
+  <text x="123.5" y="456.5" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">~/.claude/skills/frontend-design</text>
+  <text x="42.0" y="479.0" fill="#8b98b8" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">Codex</text>
+  <text x="123.5" y="479.0" fill="#e6edf3" font-family="SF Mono, JetBrains Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="13.5" xml:space="preserve">~/.codex/skills/frontend-design</text>
+</svg>

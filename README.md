@@ -1,7 +1,13 @@
 # skillup
 
+[![Release](https://img.shields.io/github/v/release/M1chlCZ/skill-updater?color=56d4dd)](https://github.com/M1chlCZ/skill-updater/releases)
+[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)](go.mod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Run `skillup` to see which AI agent skills you have, where they live, and
 which ones have updates. Skillup is written in Go and checks the source with Git.
+
+![skillup terminal dashboard](docs/demo.svg)
 
 ## Install
 
@@ -15,7 +21,7 @@ skillup
 You can also build it with Go 1.25 or newer. Keep Git on your PATH.
 
 ```sh
-go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.2.0
+go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.4.0
 skillup
 ```
 
