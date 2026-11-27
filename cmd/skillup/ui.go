@@ -23,6 +23,8 @@ type screen struct {
 	width, height           int
 	busy, confirm, applying bool
 	checking                bool
+	selection               skillSelection
+	confirmOffset           int
 	err                     error
 	activity                spinner.Model
 	search                  textinput.Model
@@ -48,7 +50,7 @@ const (
 func (m screen) load(apply bool) tea.Cmd {
 	return func() tea.Msg {
 		if apply {
-			rows, err := scan(m.ctx, m.cfg, true)
+			rows, err := scan(m.ctx, m.cfg, true, m.selection)
 			return scanResult{rows, err}
 		}
 		rows, byLocation, err := inventory(m.ctx, m.cfg)
@@ -62,7 +64,8 @@ func (m screen) check(local inventoryResult) tea.Cmd {
 		if err != nil {
 			return scanResult{local.rows, err}
 		}
-		rows, err := inspectSources(m.ctx, m.cfg, lock, local.rows, local.byLocation, false)
+		rows, installs := catalog(m.cfg, lock, local.rows, local.byLocation)
+		rows, err = inspectSources(m.ctx, lock, rows, installs, false, "")
 		return scanResult{rows, err}
 	}
 }
@@ -164,6 +167,21 @@ func (m screen) finish(result scanResult) (screen, tea.Cmd) {
 			row.mark(uncheckedStatus, "Could not complete the source check")
 		}
 	}
+	if m.applying && result.err != nil && result.rows == nil {
+		result.rows = m.rows
+	} else if m.selection.approved != nil {
+		rows := slices.Clone(m.rows)
+		for _, updated := range result.rows {
+			if index := slices.IndexFunc(rows, func(row *skill) bool {
+				return row.name == updated.name && row.path == updated.path
+			}); index >= 0 {
+				rows[index] = updated
+			}
+		}
+		sortRows(rows)
+		result.rows = rows
+	}
+	m.selection = skillSelection{}
 	m.err, m.busy, m.applying, m.checking = result.err, false, false, false
 	m.setRows(result.rows)
 	return m, nil
@@ -205,9 +223,24 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		key := msg.String()
 		if m.confirm {
-			m.confirm = false
-			if key == "y" {
+			switch key {
+			case "y":
+				_, height := m.size()
+				if m.selection.approved != nil && height < 2 {
+					return m, nil
+				}
+				m.confirm = false
 				return m.start(true)
+			case "n", "esc", "q", "ctrl+c":
+				m.confirm = false
+				m.selection = skillSelection{}
+			case "down", "j":
+				if m.selection.approved != nil {
+					_, _, maxOffset := m.confirmationPage()
+					m.confirmOffset = min(m.confirmOffset+1, maxOffset)
+				}
+			case "up", "k":
+				m.confirmOffset = max(0, m.confirmOffset-1)
 			}
 			return m, nil
 		}
@@ -270,6 +303,13 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.start(false)
 			}
 		case "u":
+			if !m.busy && m.selected != nil && m.selected.status == available {
+				scope := scopeFor(m.selected, m.rows)
+				m.selection = skillSelection{name: m.selected.name, path: m.selected.path, approved: &scope}
+				m.confirm = true
+				m.confirmOffset = 0
+			}
+		case "a":
 			if m.busy {
 				return m, nil
 			}
@@ -295,19 +335,36 @@ func (m screen) View() tea.View {
 	return view
 }
 
-func (m screen) content() string {
-	width, height := m.width, m.height
-	if width == 0 {
-		width, height = 80, 24
+func (m screen) size() (int, int) {
+	if m.width == 0 {
+		return 80, 24
 	}
+	return m.width, m.height
+}
+
+func (m screen) content() string {
+	width, height := m.size()
 	title := styled("skillup", lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")))
 	lines := []string{ansi.Truncate(title, width, "…")}
-	help := "u update all · ↑/↓ select · r refresh · q quit"
+	if m.confirm && m.selection.approved != nil {
+		return m.confirmation(lines)
+	}
+	help := "u update selected · a update all · ↑/↓ select · r refresh · q quit"
+	if width < 60 {
+		help = "u update · a all · r · q quit"
+	}
 	switch {
 	case m.confirm:
 		help = "Update all? y/n"
 	case m.applying:
-		help = m.activity.View() + " Applying updates…"
+		label := "Applying updates…"
+		if scope := m.selection.approved; scope != nil {
+			label = "Updating skill…"
+			if scope.checkout != "" {
+				label = "Updating checkout…"
+			}
+		}
+		help = m.activity.View() + " " + label
 	case m.busy:
 		quit := "q quit"
 		if m.search.Focused() {
@@ -385,40 +442,110 @@ func (m screen) content() string {
 		details = append(details, loc.label+"  "+loc.path)
 	}
 
-	var wrapped []string
-	for _, detail := range details {
-		wrapped = append(wrapped, strings.Split(ansi.Hardwrap(printable(detail), width, false), "\n")...)
-	}
-	room := max(0, height-len(lines)-2)
-	wrapped = wrapped[:min(len(wrapped), room/2)]
-	count := min(len(rows), room-len(wrapped))
-	start := max(0, selected-count+1)
-	if count > 0 {
-		nameWidth := min(36, max(10, width-14))
-		headers := "  " + column("Skill", nameWidth) + "Status      Location"
-		lines = append(lines, ansi.Truncate(styled(headers, lipgloss.NewStyle().Bold(true)), width, "…"))
-		for i := start; i < start+count; i++ {
-			row := rows[i]
-			var labels []string
-			for _, loc := range row.locations {
-				labels = append(labels, loc.label)
+	room := max(0, height-len(lines))
+	if width >= 90 && room > 0 {
+		listWidth := width * 3 / 5
+		list := skillList(rows, selected, listWidth, room)
+		detail := wrapLines(details, width-listWidth-3)
+		detail[0] = styled(detail[0], lipgloss.NewStyle().Bold(true))
+		for i := range min(room, max(len(list), len(detail))) {
+			left, right := "", ""
+			if i < len(list) {
+				left = list[i]
 			}
-			cursor := "  "
-			name := column(row.name, nameWidth)
-			if i == selected {
-				cursor = styled("› ", lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")))
-				name = styled(name, lipgloss.NewStyle().Bold(true).Underline(true))
+			if i < len(detail) {
+				right = detail[i]
 			}
-			line := cursor + name + statusText(row.status) + strings.Join(labels, ", ")
-			lines = append(lines, ansi.Truncate(line, width, "…"))
+			lines = append(lines, left+strings.Repeat(" ", listWidth-ansi.StringWidth(left))+" │ "+right)
+		}
+	} else {
+		detail := wrapLines(details, width)
+		detailRoom := max(0, (room-3)/3, room-len(rows)-2)
+		detail = detail[:min(len(detail), detailRoom)]
+		listRoom := room
+		if len(detail) > 0 {
+			listRoom -= len(detail) + 1
+		}
+		lines = append(lines, skillList(rows, selected, width, listRoom)...)
+		if len(detail) > 0 {
+			detail[0] = styled(detail[0], lipgloss.NewStyle().Bold(true))
+			lines = append(lines, styled(strings.Repeat("─", width), lipgloss.NewStyle().Foreground(lipgloss.Color("8"))))
+			lines = append(lines, detail...)
 		}
 	}
-	lines = append(lines, styled(strings.Repeat("─", width), lipgloss.NewStyle().Foreground(lipgloss.Color("8"))))
-	if len(wrapped) > 0 {
-		wrapped[0] = styled(wrapped[0], lipgloss.NewStyle().Bold(true))
-	}
-	lines = append(lines, wrapped...)
 	return strings.Join(lines[:min(len(lines), height)], "\n")
+}
+
+func wrapLines(lines []string, width int) []string {
+	var wrapped []string
+	for _, line := range lines {
+		wrapped = append(wrapped, strings.Split(ansi.Hardwrap(printable(line), width, false), "\n")...)
+	}
+	return wrapped
+}
+
+func (m screen) confirmationPage() (details []string, room, maxOffset int) {
+	width, height := m.size()
+	details = wrapLines(m.selection.approved.description(), width)
+	room = height - 2
+	if height < 4 {
+		room = height - 1
+	}
+	if len(details) > room && room > 1 {
+		room-- // Leave a line for the scroll hint.
+	}
+	return details, max(0, room), max(0, len(details)-max(1, room))
+}
+
+func (m screen) confirmation(lines []string) string {
+	width, height := m.size()
+	details, room, maxOffset := m.confirmationPage()
+	controls := "y apply · n/esc cancel"
+	switch {
+	case height < 2:
+		controls = "n/esc cancel"
+	case height == 2 && maxOffset > 0:
+		controls = "y/n/esc · ↑/↓"
+	case width < 22:
+		controls = "y yes · n/esc no"
+	}
+	if height < 4 {
+		lines = nil
+	}
+	lines = append(lines, ansi.Truncate(controls, width, "…"))
+	if maxOffset > 0 && height >= 3 {
+		lines = append(lines, ansi.Truncate("↑/↓ scroll scope", width, "…"))
+	}
+	offset := min(m.confirmOffset, maxOffset)
+	lines = append(lines, details[offset:min(len(details), offset+room)]...)
+	return strings.Join(lines[:min(len(lines), height)], "\n")
+}
+
+func skillList(rows []*skill, selected, width, height int) []string {
+	count := min(len(rows), height-1)
+	if count < 1 {
+		return nil
+	}
+	nameWidth := min(36, max(10, width-14))
+	headers := "  " + column("Skill", nameWidth) + "Status      Location"
+	lines := []string{ansi.Truncate(styled(headers, lipgloss.NewStyle().Bold(true)), width, "…")}
+	start := max(0, selected-count+1)
+	for i := start; i < start+count; i++ {
+		row := rows[i]
+		var labels []string
+		for _, loc := range row.locations {
+			labels = append(labels, loc.label)
+		}
+		cursor := "  "
+		name := column(row.name, nameWidth)
+		if i == selected {
+			cursor = styled("› ", lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")))
+			name = styled(name, lipgloss.NewStyle().Bold(true).Underline(true))
+		}
+		line := cursor + name + statusText(row.status) + strings.Join(labels, ", ")
+		lines = append(lines, ansi.Truncate(line, width, "…"))
+	}
+	return lines
 }
 
 func column(text string, width int) string {

@@ -7,9 +7,12 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 	"unicode"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 )
 
@@ -20,12 +23,20 @@ func main() {
 func run() int {
 	check := flag.Bool("check", false, "print installed skills and available updates")
 	apply := flag.Bool("apply", false, "apply supported updates without opening the terminal UI")
+	name := flag.String("skill", "", "limit --check or --apply to an exact skill name")
+	path := flag.String("path", "", "choose an installation path when a skill name is shared")
 	flag.Usage = func() {
-		fmt.Fprintln(flag.CommandLine.Output(), "Usage: skillup [--check | --apply]")
+		fmt.Fprintln(flag.CommandLine.Output(), "Usage: skillup [--check | --apply] [--skill NAME [--path PATH]]")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-	if flag.NArg() != 0 || (*apply && *check) {
+	invalid := flag.NArg() != 0 || *apply && *check || *name != "" && !*apply && !*check || *path != "" && *name == ""
+	flag.Visit(func(f *flag.Flag) {
+		if (f.Name == "skill" || f.Name == "path") && f.Value.String() == "" {
+			invalid = true
+		}
+	})
+	if invalid {
 		flag.Usage()
 		return 2
 	}
@@ -46,7 +57,13 @@ func run() int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	rows, err := scan(ctx, cfg, *apply)
+	label := "Checking sources…"
+	if *apply {
+		label = "Applying updates…"
+	}
+	finishProgress := textProgress(label)
+	rows, err := scan(ctx, cfg, *apply, skillSelection{name: *name, path: *path})
+	finishProgress()
 	exit := 0
 	for _, row := range rows {
 		fmt.Printf("%-10s %s | %s", row.status, printable(row.name), printable(row.detail))
@@ -73,6 +90,36 @@ func run() int {
 		return 1
 	}
 	return exit
+}
+
+// Only animate on terminal stderr so text output stays suitable for scripts.
+func textProgress(label string) func() {
+	width, _, err := term.GetSize(os.Stderr.Fd())
+	if err != nil || width < 2 {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(spinner.Dot.FPS)
+		defer ticker.Stop()
+		for i := 0; ; i++ {
+			frame := spinner.Dot.Frames[i%len(spinner.Dot.Frames)] + " " + label
+			frame = ansi.Truncate(frame, width-1, "…")
+			fmt.Fprint(os.Stderr, "\r", frame)
+			select {
+			case <-stop:
+				fmt.Fprint(os.Stderr, "\r", strings.Repeat(" ", ansi.StringWidth(frame)), "\r")
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		<-done
+	}
 }
 
 func printable(text string) string {

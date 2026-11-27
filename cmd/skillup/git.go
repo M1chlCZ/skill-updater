@@ -69,7 +69,7 @@ func linkedCheckout(ctx context.Context, target string) string {
 	return ""
 }
 
-func inspectCheckout(ctx context.Context, row *skill, repo string, apply bool) {
+func inspectCheckout(ctx context.Context, row *skill, repo string, apply bool, limit string) {
 	row.source = "Git checkout"
 	row.current, _ = gitText(ctx, repo, "rev-parse", "--verify", "HEAD")
 	branch, err := gitText(ctx, repo, "symbolic-ref", "-q", "--short", "HEAD")
@@ -144,6 +144,19 @@ func inspectCheckout(ctx context.Context, row *skill, repo string, apply bool) {
 	if !apply {
 		row.mark(available, "Upstream differs. Apply requires a fast-forward.")
 		return
+	}
+	if limit != "" {
+		changes, err := git(ctx, repo, "diff", "--no-renames", "--ignore-submodules=none", "--name-only", "-z", row.current, sha, "--")
+		if err != nil {
+			row.mark(failed, "Could not verify the scope of the checkout update: "+err.Error())
+			return
+		}
+		for path := range strings.SplitSeq(string(changes), "\x00") {
+			if path != "" && !inside(limit, filepath.Join(repo, path)) {
+				row.mark(failed, "Upstream changes files outside the selected skill. Confirm the whole checkout in the dashboard.")
+				return
+			}
+		}
 	}
 	head, headErr := gitText(ctx, repo, "rev-parse", "--verify", "HEAD")
 	active, branchErr := gitText(ctx, repo, "symbolic-ref", "-q", "--short", "HEAD")

@@ -57,7 +57,48 @@ func envPath(key, home, fallback string) string {
 	return filepath.Join(home, fallback)
 }
 
-func scan(ctx context.Context, cfg config, apply bool) ([]*skill, error) {
+type lockedInstall struct {
+	row       *skill
+	name, dir string
+}
+
+func catalog(cfg config, lock *globalLock, rows []*skill, byLocation map[string]*skill) ([]*skill, []lockedInstall) {
+	if lock == nil {
+		return rows, nil
+	}
+	names := make([]string, 0, len(lock.skills))
+	for name := range lock.skills {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	var installs []lockedInstall
+	for _, name := range names {
+		if !validName(name) {
+			row := &skill{name: name}
+			row.mark(skipped, "Invalid name in the global skills lock")
+			rows = append(rows, row)
+			continue
+		}
+		dir := filepath.Join(cfg.home, ".agents", "skills", name)
+		row := byLocation[dir]
+		if row == nil {
+			row = &skill{name: name, path: dir, locations: []location{{"Agents", dir}}}
+			rows = append(rows, row)
+		}
+		row.checkout = ""
+		installs = append(installs, lockedInstall{row, name, dir})
+	}
+	return rows, installs
+}
+
+func scan(ctx context.Context, cfg config, apply bool, selection skillSelection) ([]*skill, error) {
+	if apply {
+		runLock := filepath.Join(cfg.home, ".skillup.lock")
+		if err := os.Mkdir(runLock, 0700); err != nil {
+			return nil, fmt.Errorf("cannot acquire update lock %s: %w", runLock, err)
+		}
+		defer os.Remove(runLock)
+	}
 	lock, err := readLock(cfg.lock)
 	if err != nil {
 		return nil, err
@@ -66,54 +107,61 @@ func scan(ctx context.Context, cfg config, apply bool) ([]*skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	return inspectSources(ctx, cfg, lock, rows, byLocation, apply)
-}
-
-func inspectSources(ctx context.Context, cfg config, lock *globalLock, rows []*skill, byLocation map[string]*skill, apply bool) ([]*skill, error) {
-	if apply {
-		runLock := filepath.Join(cfg.home, ".skillup.lock")
-		if err := os.Mkdir(runLock, 0700); err != nil {
-			return rows, fmt.Errorf("cannot acquire update lock %s: %w", runLock, err)
+	rows, installs := catalog(cfg, lock, rows, byLocation)
+	var checkoutLimit string
+	if selection.name != "" {
+		row, err := selection.resolve(rows)
+		if err != nil {
+			return nil, err
 		}
-		defer os.Remove(runLock)
-		if lock != nil {
-			if err := lock.unchanged(); err != nil {
-				return rows, err
+		allRows := rows
+		rows = []*skill{row}
+		installs = slices.DeleteFunc(installs, func(install lockedInstall) bool { return install.row != row })
+		if apply {
+			scope := scopeFor(row, allRows)
+			switch {
+			case scope.checkout == "" && len(scope.rows) > 1:
+				return nil, fmt.Errorf("the selected skill folder overlaps another installation\n%s", strings.Join(scope.description(), "\n"))
+			case selection.approved != nil:
+				if !scope.matches(*selection.approved) {
+					return nil, fmt.Errorf("update scope changed; refresh the dashboard and confirm again")
+				}
+				rows = scope.rows
+			case len(scope.rows) > 1:
+				return nil, fmt.Errorf("updating %q would advance a shared Git checkout; confirm the whole checkout in the dashboard\n%s",
+					printable(row.name), strings.Join(scope.description(), "\n"))
+			default:
+				if row.checkout != "" {
+					checkoutLimit = row.path
+				}
+			}
+			for _, affected := range scope.rows {
+				if affected.checkout != scope.checkout {
+					return nil, fmt.Errorf("checkout contains a skill with a separate installation or manager at %s", printable(affected.path))
+				}
 			}
 		}
 	}
+	if apply && lock != nil {
+		if err := lock.unchanged(); err != nil {
+			return rows, err
+		}
+	}
+	return inspectSources(ctx, lock, rows, installs, apply, checkoutLimit)
+}
 
+func inspectSources(ctx context.Context, lock *globalLock, rows []*skill, installs []lockedInstall, apply bool, checkoutLimit string) ([]*skill, error) {
 	cache := sourceCache{repos: map[string]gitSource{}}
 	defer func() {
 		if cache.dir != "" {
 			os.RemoveAll(cache.dir)
 		}
 	}()
-	if lock != nil {
-		names := make([]string, 0, len(lock.skills))
-		for name := range lock.skills {
-			names = append(names, name)
+	for _, install := range installs {
+		if err := ctx.Err(); err != nil {
+			return rows, err
 		}
-		slices.Sort(names)
-		for _, name := range names {
-			if err := ctx.Err(); err != nil {
-				return rows, err
-			}
-			dir := filepath.Join(cfg.home, ".agents", "skills", name)
-			row := byLocation[dir]
-			if !validName(name) {
-				row = &skill{name: name}
-				row.mark(skipped, "Invalid name in the global skills lock")
-				rows = append(rows, row)
-				continue
-			}
-			if row == nil {
-				row = &skill{name: name, path: dir, locations: []location{{"Agents", dir}}}
-				rows = append(rows, row)
-			}
-			row.checkout = ""
-			inspectLocked(ctx, lock, &cache, row, dir, name, apply)
-		}
+		inspectLocked(ctx, lock, &cache, install.row, install.dir, install.name, apply)
 	}
 
 	checkouts := map[string]*skill{}
@@ -127,12 +175,17 @@ func inspectSources(ctx context.Context, cfg config, lock *globalLock, rows []*s
 		info := checkouts[row.checkout]
 		if info == nil {
 			info = &skill{}
-			inspectCheckout(ctx, info, row.checkout, apply)
+			inspectCheckout(ctx, info, row.checkout, apply, checkoutLimit)
 			checkouts[row.checkout] = info
 		}
 		row.source, row.current, row.latest = info.source, info.current, info.latest
 		row.mark(info.status, info.detail)
 	}
+	sortRows(rows)
+	return rows, nil
+}
+
+func sortRows(rows []*skill) {
 	slices.SortStableFunc(rows, func(a, b *skill) int {
 		switch {
 		case a.status == available && b.status != available:
@@ -142,7 +195,6 @@ func inspectSources(ctx context.Context, cfg config, lock *globalLock, rows []*s
 		}
 		return strings.Compare(a.name, b.name)
 	})
-	return rows, nil
 }
 
 func inventory(ctx context.Context, cfg config) ([]*skill, map[string]*skill, error) {

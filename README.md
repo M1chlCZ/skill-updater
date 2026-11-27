@@ -21,7 +21,7 @@ skillup
 You can also build it with Go 1.25 or newer. Keep Git on your PATH.
 
 ```sh
-go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.4.0
+go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.5.0
 skillup
 ```
 
@@ -36,17 +36,23 @@ work on Linux, including in WSL.
 | --- | --- |
 | `skillup` | Opens the dashboard, with available updates at the top. |
 | `skillup --check` | Prints the installed skills and their status. Redirecting the output gives you the same text view. |
-| `skillup --apply` | Applies eligible updates and prints what changed. |
+| `skillup --apply` | Applies all eligible updates and prints what changed. |
+| `skillup --check --skill demo` | Checks the installation named exactly `demo`. |
+| `skillup --apply --skill demo` | Applies an eligible update to that installation. |
 
-Move with **↑/↓** or **j/k**. The selected row shows the source, revision
-and install paths. Press **/** to search by skill name, location label, or
+Move with **↑/↓** or **j/k**. Press **/** to search by skill name, location label, or
 install path. Search ignores case and updates as you type. Press **Enter**
 to keep the search and return to the list, or **Esc** to clear it. Press
 **f** to cycle through All, Available, and Modified.
 
-Press **r** to check again, **u** to open the update prompt, **y** to apply,
-or **q** to quit. The search and status filter only change what you see.
-The update prompt covers all eligible skills, including hidden rows.
+On wide terminals, the selected skill's source, revision, and install
+paths appear beside the list. On narrow terminals, the list uses the
+full width with room for a short detail below.
+
+Press **r** to check again, **u** to update the selected skill, **a** to
+update all eligible skills, or **q** to quit. Confirm with **y** or cancel
+with **n** or **Esc**. The all-skills action includes rows hidden by search
+or filters.
 
 The dashboard lists local skills while it checks their sources. You can
 browse, search, or quit during the check. The status filter keeps rows
@@ -54,8 +60,16 @@ visible while their status is pending. If a source fails, its error appears
 alongside the other results and the list stays available.
 
 If two agents link to the same skill folder, you'll see one row with both
-paths. A Git checkout can also supply several skills. Those skills share a
-revision, and skillup advances their checkout once.
+paths. If a name matches multiple installations, the text command lists
+the paths. Rerun it with `--path /path/from/the/list` to pick one.
+
+A Git checkout can supply several skills, and they all share its revision.
+A selected update in the dashboard shows the whole checkout and its
+installed skills, including any hidden by filters. Use **↑/↓** to scroll
+the confirmation as needed. A targeted text update stops if the checkout
+is shared or incoming changes touch files outside the selected skill.
+Targeted updates also stop when the selected folder or checkout
+overlaps a separate installation outside its scope.
 
 ## Which skills get updated?
 

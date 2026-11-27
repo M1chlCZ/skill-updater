@@ -18,15 +18,15 @@ func TestScreenRequiresConfirmation(t *testing.T) {
 	if view := m.View().Content; !strings.Contains(view, "Codex") || !strings.Contains(view, "Available") {
 		t.Fatalf("missing install status in view: %s", view)
 	}
-	next, cmd := m.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	if cmd != nil || !next.(screen).confirm {
-		t.Fatal("u should show a confirmation before running an update")
+		t.Fatal("a should show a confirmation before running an update")
 	}
 	next, cmd = next.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	if cmd != nil || next.(screen).confirm {
 		t.Fatal("n should cancel without running an update")
 	}
-	next, _ = next.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
+	next, _ = next.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	next, cmd = next.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	if cmd == nil || !next.(screen).applying {
 		t.Fatal("y should start the update")
@@ -107,7 +107,7 @@ func TestScreenSearchAndFilterNavigation(t *testing.T) {
 	}
 	press(tea.KeyEnd, "")
 	press('f', "f")
-	checkView("f Available", "› gamma", "u update all")
+	checkView("f Available", "› gamma", "a update all")
 	press(tea.KeyUp, "")
 	checkView("› alpha")
 	press(tea.KeyDown, "")
@@ -121,8 +121,8 @@ func TestScreenSearchAndFilterNavigation(t *testing.T) {
 	}
 
 	press('f', "f")
-	checkView("f Modified", "› beta", "u update all")
-	press('u', "u")
+	checkView("f Modified", "› beta", "a update all")
+	press('a', "a")
 	checkView("Update all? y/n")
 	press('n', "n")
 	press('f', "f")
@@ -146,7 +146,7 @@ func TestScreenSearchFitsNarrowTerminal(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	var m tea.Model = screen{search: newSearch(), rows: []*skill{{name: "demo", status: available}}}
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 20, Height: 8})
-	if view := m.View().Content; !strings.Contains(view, "› demo") || !strings.Contains(view, "u update all") {
+	if view := m.View().Content; !strings.Contains(view, "› demo") || !strings.Contains(view, "u update · a all") {
 		t.Fatalf("narrow view must show the selected row and update scope:\n%s", view)
 	}
 	m, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
@@ -236,5 +236,64 @@ func TestScreenShowsInventoryBeforeSourceCheck(t *testing.T) {
 	}
 	if _, ok := quit().(tea.QuitMsg); !ok {
 		t.Fatal("a cancelled check should quit")
+	}
+}
+
+func TestScreenSelectedCheckoutScope(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	demo := &skill{name: "demo", path: "/bundle/skills/demo", checkout: "/bundle", status: available, source: "example source"}
+	sibling := &skill{name: "sibling", path: "/bundle/skills/sibling", checkout: "/bundle", status: available}
+	other := &skill{name: "other", path: "/elsewhere", status: available}
+	var m tea.Model = screen{rows: []*skill{demo, sibling, other}, selected: demo, search: newSearch()}
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 18})
+	view := m.View().Content
+	if !strings.Contains(view, "example source") || !strings.Contains(view, "│") {
+		t.Fatalf("wide view should show details beside the list:\n%s", view)
+	}
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 32, Height: 12})
+	view = m.View().Content
+	if !strings.Contains(view, "› demo") || strings.Contains(view, "│") {
+		t.Fatalf("narrow view should give the list full width:\n%s", view)
+	}
+	m, _ = m.Update(tea.KeyPressMsg{Code: '/'})
+	m, _ = m.Update(tea.PasteMsg{Content: "demo"})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, cmd := m.Update(tea.KeyPressMsg{Code: 'u'})
+	view = m.View().Content
+	for _, part := range []string{"Whole Git checkout", "/bundle", "demo", "sibling", "y apply", "n/esc cancel"} {
+		if !strings.Contains(view, part) {
+			t.Fatalf("missing %q in confirmation:\n%s", part, view)
+		}
+	}
+	if cmd != nil || strings.Contains(view, "other") {
+		t.Fatalf("confirmation should cover exactly the shared checkout:\n%s", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if ansi.StringWidth(line) > 32 || strings.Contains(line, "\x1b") {
+			t.Fatalf("confirmation overflows or uses color: %q", line)
+		}
+	}
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 32, Height: 1})
+	m, cmd = m.Update(tea.KeyPressMsg{Code: 'y'})
+	if cmd != nil {
+		t.Fatal("confirmation must have room to show the scope before applying")
+	}
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 32, Height: 3})
+	if view := m.View().Content; !strings.Contains(view, "Whole Git checkout") || !strings.Contains(view, "y apply") {
+		t.Fatalf("short confirmation must show both the scope and the controls:\n%s", view)
+	}
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if view := m.View().Content; !strings.Contains(view, "sibling") {
+		t.Fatalf("short confirmation must scroll to show the affected skills:\n%s", view)
+	}
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 32, Height: 12})
+	m, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if cmd != nil || !strings.Contains(m.View().Content, "› demo") {
+		t.Fatal("escape should cancel and return to the same selection")
+	}
+	m, _ = m.Update(tea.KeyPressMsg{Code: 'u'})
+	m, cmd = m.Update(tea.KeyPressMsg{Code: 'y'})
+	if cmd == nil || !strings.Contains(m.View().Content, "Updating checkout") {
+		t.Fatal("y should start the confirmed checkout update")
 	}
 }
