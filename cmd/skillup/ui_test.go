@@ -15,7 +15,7 @@ func TestScreenRequiresConfirmation(t *testing.T) {
 	m := screen{
 		rows: []*skill{{name: "demo", status: available, locations: []location{{"Codex", "/test/demo"}}}},
 	}
-	if view := m.View().Content; !strings.Contains(view, "Codex") || !strings.Contains(view, "Available") {
+	if view := m.View().Content; !strings.Contains(view, "Codex") || !strings.Contains(view, "Update available") {
 		t.Fatalf("missing install status in view: %s", view)
 	}
 	next, cmd := m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
@@ -107,7 +107,7 @@ func TestScreenSearchAndFilterNavigation(t *testing.T) {
 	}
 	press(tea.KeyEnd, "")
 	press('f', "f")
-	checkView("f Available", "› gamma", "a update all")
+	checkView("[Updates]", "› gamma", "a update all")
 	press(tea.KeyUp, "")
 	checkView("› alpha")
 	press(tea.KeyDown, "")
@@ -121,12 +121,12 @@ func TestScreenSearchAndFilterNavigation(t *testing.T) {
 	}
 
 	press('f', "f")
-	checkView("f Modified", "› beta", "a update all")
+	checkView("[Local changes]", "› beta", "a update all")
 	press('a', "a")
-	checkView("Update all? y/n")
+	checkView("All available updates")
 	press('n', "n")
 	press('f', "f")
-	checkView("f All", "› beta")
+	checkView("[All]", "› beta")
 	press(tea.KeyEscape, "")
 	checkView("› beta")
 
@@ -146,8 +146,8 @@ func TestScreenSearchFitsNarrowTerminal(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	var m tea.Model = screen{search: newSearch(), rows: []*skill{{name: "demo", status: available}}}
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 20, Height: 8})
-	if view := m.View().Content; !strings.Contains(view, "› demo") || !strings.Contains(view, "u update · a all") {
-		t.Fatalf("narrow view must show the selected row and update scope:\n%s", view)
+	if view := m.View().Content; !strings.Contains(view, "› demo") || !strings.Contains(view, "↵ actions") {
+		t.Fatalf("narrow view must show the selected row and its actions:\n%s", view)
 	}
 	m, _ = m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m, _ = m.Update(tea.PasteMsg{Content: "dlouhý název · 日本語 · skillqru"})
@@ -202,7 +202,7 @@ func TestScreenShowsInventoryBeforeSourceCheck(t *testing.T) {
 		t.Fatalf("local rows should appear before the remote check:\n%s", waiting)
 	}
 	next, _ = next.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
-	if view := next.View().Content; !strings.Contains(view, "f Available") || !strings.Contains(view, "alpha") {
+	if view := next.View().Content; !strings.Contains(view, "[Updates]") || !strings.Contains(view, "alpha") {
 		t.Fatalf("status filter should keep pending rows visible:\n%s", view)
 	}
 	next, _ = next.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
@@ -260,7 +260,7 @@ func TestScreenSelectedCheckoutScope(t *testing.T) {
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m, cmd := m.Update(tea.KeyPressMsg{Code: 'u'})
 	view = m.View().Content
-	for _, part := range []string{"Whole Git checkout", "/bundle", "demo", "sibling", "y apply", "n/esc cancel"} {
+	for _, part := range []string{"Whole Git checkout", "/bundle", "demo", "sibling", "y apply", "Esc back"} {
 		if !strings.Contains(view, part) {
 			t.Fatalf("missing %q in confirmation:\n%s", part, view)
 		}
@@ -295,5 +295,151 @@ func TestScreenSelectedCheckoutScope(t *testing.T) {
 	m, cmd = m.Update(tea.KeyPressMsg{Code: 'y'})
 	if cmd == nil || !strings.Contains(m.View().Content, "Updating checkout") {
 		t.Fatal("y should start the confirmed checkout update")
+	}
+}
+
+func TestEnterOpensActionsAndConfirmsUpdate(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	demo := &skill{name: "demo", path: "/bundle/skills/demo", status: available, checkout: "/bundle"}
+	sibling := &skill{name: "sibling", path: "/bundle/skills/sibling", status: current, checkout: "/bundle"}
+	m := screen{ctx: context.Background(), width: 32, height: 12, search: newSearch(),
+		rows: []*skill{demo, sibling}, selected: demo, filter: available}
+	m.search.SetValue("demo")
+	press := func(code rune) tea.Cmd {
+		t.Helper()
+		next, cmd := m.Update(tea.KeyPressMsg{Code: code})
+		m = next.(screen)
+		return cmd
+	}
+	if view := m.View().Content; !strings.Contains(view, "Enter actions") {
+		t.Fatalf("dashboard should advertise Enter: %s", view)
+	}
+	if cmd := press(tea.KeyEnter); cmd != nil || m.confirm || m.applying ||
+		!strings.Contains(m.View().Content, "Enter Update skill") {
+		t.Fatalf("first Enter must show the skill's action: %s", m.View().Content)
+	}
+	if cmd := press(tea.KeyEnter); cmd != nil || !m.confirm || m.applying {
+		t.Fatal("second Enter must show the update scope before writing")
+	}
+	for _, want := range []string{"Whole Git checkout", "demo", "sibling", "y apply", "Esc back"} {
+		if !strings.Contains(m.View().Content, want) {
+			t.Fatalf("confirmation missing %q: %s", want, m.View().Content)
+		}
+	}
+	press(tea.KeyEscape)
+	if m.confirm || !strings.Contains(m.View().Content, "Enter Update skill") {
+		t.Fatal("cancel should return to the skill actions")
+	}
+	press(tea.KeyEscape)
+	if m.selected != demo || m.search.Value() != "demo" || m.filter != available {
+		t.Fatal("closing actions changed the dashboard selection or filters")
+	}
+	press(tea.KeyEnter)
+	press(tea.KeyEnter)
+	if cmd := press(tea.KeyEnter); cmd != nil || m.applying {
+		t.Fatal("Enter must not apply to a shared checkout")
+	}
+	if cmd := press('y'); cmd == nil || !m.applying {
+		t.Fatal("y should apply the reviewed checkout scope")
+	}
+	result := *demo
+	result.status = updated
+	next, _ := m.Update(scanResult{rows: []*skill{&result, sibling}})
+	if view := next.View().Content; !strings.Contains(view, "Updated demo") || !strings.Contains(view, "No matching skills") {
+		t.Fatalf("success should stay visible even under the updates filter: %s", view)
+	}
+}
+
+func TestSkillActionsScrollAndExplainUnavailableUpdate(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	row := &skill{name: "managed", path: "/skills/managed", status: skipped, manager: "Skild",
+		detail: "Use skild update", source: "example.test/owner/managed"}
+	for _, name := range []string{"Codex", "Agents", "Claude", "Last location"} {
+		row.locations = append(row.locations, location{name, "/example/long/path/to/installed/skills/managed"})
+	}
+	var m tea.Model = screen{rows: []*skill{row}, selected: row, search: newSearch()}
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 32, Height: 9})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	view := m.View().Content
+	if !strings.Contains(view, "Reason  Use skild update") || strings.Contains(view, "Enter Update skill") {
+		t.Fatalf("managed skill should explain why update is unavailable:\n%s", view)
+	}
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnd})
+	if view := m.View().Content; !strings.Contains(view, "Last location") {
+		t.Fatalf("last location should be reachable by scrolling:\n%s", view)
+	}
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 104, Height: 18})
+	for _, line := range strings.Split(m.View().Content, "\n") {
+		if ansi.StringWidth(line) > 104 || strings.Contains(line, "\x1b") {
+			t.Fatalf("resized action panel overflows or uses color: %q", line)
+		}
+	}
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.(screen).selected != row || !strings.Contains(m.View().Content, "› managed") {
+		t.Fatal("close should return to the same selected row")
+	}
+}
+
+func TestActionsPaletteSearchUsesSelectedUpdateScope(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	row := &skill{name: "demo", path: "/skills/demo", status: available}
+	var m tea.Model = screen{width: 32, height: 12, rows: []*skill{row}, selected: row, search: newSearch()}
+	m, _ = m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	if view := m.View().Content; !strings.Contains(view, "Command palette") {
+		t.Fatalf("Ctrl+P should open the command palette:\n%s", view)
+	}
+	m, _ = m.Update(tea.PasteMsg{Content: "selected"})
+	view := m.View().Content
+	if !strings.Contains(view, "Update selected skill") || strings.Contains(view, "Update all") {
+		t.Fatalf("palette should filter by action name:\n%s", view)
+	}
+	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	s := m.(screen)
+	if cmd != nil || !s.confirm || s.selection.approved == nil || s.selection.path != row.path {
+		t.Fatal("palette should open the normal selected update confirmation before changing files")
+	}
+}
+
+func TestSingleSkillCanConfirmWithEnter(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	row := &skill{name: "demo", path: "/skills/demo", status: available}
+	var m tea.Model = screen{rows: []*skill{row}, selected: row, search: newSearch()}
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	m, _ = m.Update(enter)
+	m, _ = m.Update(enter)
+	if view := m.View().Content; !strings.Contains(view, "Enter apply") {
+		t.Fatalf("single skill should be confirmable with Enter:\n%s", view)
+	}
+	var cmd tea.Cmd
+	m, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, IsRepeat: true})
+	if cmd != nil || !m.(screen).confirm {
+		t.Fatal("holding Enter must not confirm the update")
+	}
+	m, cmd = m.Update(enter)
+	if cmd == nil || !m.(screen).applying {
+		t.Fatal("pressing Enter again should start the confirmed update")
+	}
+}
+
+func TestFirstCheckSuggestsAnUpdateWithoutStealingSelection(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	for _, browsed := range []bool{false, true} {
+		local := &skill{name: "local", path: "/skills/local", status: checkingStatus}
+		demo := &skill{name: "demo", path: "/skills/demo", status: checkingStatus}
+		var m tea.Model = screen{ctx: context.Background(), busy: true, autoSelect: true,
+			rows: []*skill{local, demo}, selected: local, search: newSearch()}
+		if browsed {
+			m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyHome})
+		}
+		finishedLocal, finishedDemo := *local, *demo
+		finishedLocal.status, finishedDemo.status = skipped, available
+		m, _ = m.Update(scanResult{rows: []*skill{&finishedDemo, &finishedLocal}})
+		want := "demo"
+		if browsed {
+			want = "local"
+		}
+		if selected := m.(screen).selected; selected == nil || selected.name != want {
+			t.Fatalf("browsed=%t: expected %s, got %+v", browsed, want, selected)
+		}
 	}
 }

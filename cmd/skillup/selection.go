@@ -176,6 +176,11 @@ func (s updateScope) description() []string {
 		}
 		lines = append(lines, "Whole Git checkout", "Skills  "+strings.Join(names, ", "), printable(s.checkout))
 	}
+	return append(lines, s.installationDescriptions()...)
+}
+
+func (s updateScope) installationDescriptions() []string {
+	var lines []string
 	for _, row := range s.rows {
 		lines = append(lines, printable(row.name))
 		for _, loc := range row.locations {

@@ -7,7 +7,7 @@
 Run `skillup` to see which AI agent skills you have, where they live, and
 which ones have updates. Skillup is written in Go and checks the source with Git.
 
-![skillup terminal dashboard](docs/demo.svg)
+![Skillup dashboard with available updates and the selected skill](docs/dashboard.png)
 
 ## Install
 
@@ -21,7 +21,7 @@ skillup
 You can also build it with Go 1.25 or newer. Keep Git on your PATH.
 
 ```sh
-go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.6.0
+go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.6.1
 skillup
 ```
 
@@ -40,20 +40,23 @@ work on Linux, including in WSL.
 | `skillup --check --skill demo` | Checks the installation named exactly `demo`. |
 | `skillup --apply --skill demo` | Applies an eligible update to that installation. |
 
-Move with **↑/↓** or **j/k**. Press **/** to search by skill name, location label, or
-install path. Search ignores case and updates as you type. Press **Enter**
-to keep the search and return to the list, or **Esc** to clear it. Press
-**f** to cycle through All, Available, and Modified.
+Move with **↑/↓** and press **Enter** to open the selected skill's actions
+and details. When an update is available, **Enter** opens the confirmation.
+Press **Enter** again to apply a single-folder update. Press **y** to confirm
+an update to a Git checkout or all eligible skills. **Esc** goes back.
 
-On wide terminals, the selected skill's manager, source, revision, install
-paths, and any skip reason appear beside the list. On narrow terminals,
-the list uses the full width and prioritizes the manager and skip reason
-in the detail below. Text output also shows the manager.
+Press **/** to search by skill name, location label, or install path. Press
+**Enter** to keep the search and return to the list. **f** cycles through All,
+Updates, and Local changes. **Esc** clears the search, then the status filter.
 
-Press **r** to check again, **u** to update the selected skill, **a** to
-update all eligible skills, or **q** to quit. Confirm with **y** or cancel
-with **n** or **Esc**. The all-skills action includes rows hidden by search
-or filters.
+**Ctrl+P** opens a searchable command palette. **?** shows keyboard shortcuts.
+Use **u** to review the selected update, **a** to review all eligible updates,
+**r** to check again, or **q** to quit. The all-skills action includes rows
+hidden by search or filters.
+
+The skill panel shows the manager, skip reason, source, revision, and install
+paths. Scroll with **↑/↓**, **Page Up**, or **Page Down**. Wide terminals also
+show a preview next to the list. Text output shows the manager as well.
 
 The dashboard lists local skills while it checks their sources. You can
 browse, search, or quit during the check. The status filter keeps rows
@@ -137,6 +140,7 @@ Bubbles for search input and the loading animation during checks and updates.
 ```sh
 go test ./...
 go vet ./...
+go run ./cmd/skillup
 go run ./cmd/skillup --check
 ```
 

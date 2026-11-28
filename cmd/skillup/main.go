@@ -48,7 +48,7 @@ func run() int {
 	if !*apply && !*check && term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd()) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if _, err := tea.NewProgram(screen{cfg: cfg, ctx: ctx, cancel: cancel, busy: true, activity: newActivity(), search: newSearch()}).Run(); err != nil {
+		if _, err := tea.NewProgram(screen{cfg: cfg, ctx: ctx, cancel: cancel, busy: true, autoSelect: true, activity: newActivity(), search: newSearch()}).Run(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
