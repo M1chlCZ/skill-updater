@@ -21,7 +21,7 @@ skillup
 You can also build it with Go 1.25 or newer. Keep Git on your PATH.
 
 ```sh
-go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.5.0
+go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.6.0
 skillup
 ```
 
@@ -45,9 +45,10 @@ install path. Search ignores case and updates as you type. Press **Enter**
 to keep the search and return to the list, or **Esc** to clear it. Press
 **f** to cycle through All, Available, and Modified.
 
-On wide terminals, the selected skill's source, revision, and install
-paths appear beside the list. On narrow terminals, the list uses the
-full width with room for a short detail below.
+On wide terminals, the selected skill's manager, source, revision, install
+paths, and any skip reason appear beside the list. On narrow terminals,
+the list uses the full width and prioritizes the manager and skip reason
+in the detail below. Text output also shows the manager.
 
 Press **r** to check again, **u** to update the selected skill, **a** to
 update all eligible skills, or **q** to quit. Confirm with **y** or cancel
@@ -89,6 +90,14 @@ Skillup looks in `~/.agents/skills`, `$CODEX_HOME/skills` (default
   Skillup checks that Git can fast-forward before it moves the branch.
   A preview shows when the remote revision differs, even if that revision
   hasn't been fetched yet.
+
+Skillup reads GitHub CLI tracking metadata from the installed `SKILL.md`
+and Skild tracking metadata from `.skild/install.json`. Use `gh skill update`
+or `skild update` for those installs. The shared version 3 lock is labeled
+`Skills lock` because both GitHub CLI and Vercel can write it. If its record
+matches a separate GitHub CLI installation with the same name, Skillup
+leaves the ambiguous shared install alone. It also skips linked checkouts
+that contain skills managed by GitHub CLI or Skild.
 
 Local edits stay in place. Updates also skip manually copied skills,
 plugin caches, project installs and installs managed by other tools.

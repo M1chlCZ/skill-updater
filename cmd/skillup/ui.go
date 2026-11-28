@@ -65,7 +65,7 @@ func (m screen) check(local inventoryResult) tea.Cmd {
 			return scanResult{local.rows, err}
 		}
 		rows, installs := catalog(m.cfg, lock, local.rows, local.byLocation)
-		rows, err = inspectSources(m.ctx, lock, rows, installs, false, "")
+		rows, err = inspectSources(m.ctx, lock, rows, rows, installs, false, "")
 		return scanResult{rows, err}
 	}
 }
@@ -427,7 +427,17 @@ func (m screen) content() string {
 
 	selected := max(0, slices.Index(rows, m.selected))
 	row := rows[selected]
-	details := []string{row.name + " · " + row.status + " · " + row.detail}
+	details := []string{row.name + " · " + row.status}
+	if row.manager != "" {
+		details = append(details, "Manager  "+row.manager)
+	}
+	if row.detail != "" {
+		label := "Status"
+		if row.status == skipped || row.status == "Pinned" {
+			label = "Reason"
+		}
+		details = append(details, label+"  "+row.detail)
+	}
 	if row.source != "" {
 		details = append(details, "Source  "+row.source)
 	}
@@ -459,8 +469,9 @@ func (m screen) content() string {
 			lines = append(lines, left+strings.Repeat(" ", listWidth-ansi.StringWidth(left))+" │ "+right)
 		}
 	} else {
-		detail := wrapLines(details, width)
-		detailRoom := max(0, (room-3)/3, room-len(rows)-2)
+		// The selected row already shows its name and status in the list.
+		detail := wrapLines(details[1:], width)
+		detailRoom := min(max(0, room-3), max(2, (room-3)/3, room-len(rows)-2))
 		detail = detail[:min(len(detail), detailRoom)]
 		listRoom := room
 		if len(detail) > 0 {

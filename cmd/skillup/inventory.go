@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -26,6 +27,7 @@ type location struct {
 type skill struct {
 	name, path, checkout    string
 	source, current, latest string
+	manager, githubPath     string
 	status, detail          string
 	locations               []location
 }
@@ -72,20 +74,40 @@ func catalog(cfg config, lock *globalLock, rows []*skill, byLocation map[string]
 	}
 	slices.Sort(names)
 	var installs []lockedInstall
+	githubInstalls := map[string][]*skill{}
+	for _, row := range rows {
+		if row.githubPath != "" {
+			name := filepath.Base(row.path)
+			githubInstalls[name] = append(githubInstalls[name], row)
+		}
+	}
 	for _, name := range names {
 		if !validName(name) {
-			row := &skill{name: name}
+			row := &skill{name: name, manager: skillsLock}
 			row.mark(skipped, "Invalid name in the global skills lock")
 			rows = append(rows, row)
 			continue
 		}
 		dir := filepath.Join(cfg.home, ".agents", "skills", name)
 		row := byLocation[dir]
+		if row != nil && row.managedExternally() {
+			continue
+		}
+		var entry lockEntry
+		ambiguous := len(githubInstalls[name]) > 0 && json.Unmarshal(lock.skills[name], &entry) == nil &&
+			slices.ContainsFunc(githubInstalls[name], func(install *skill) bool { return install.matchesGitHubLock(entry) })
 		if row == nil {
+			if ambiguous {
+				continue // The lock already describes a visible GitHub CLI installation.
+			}
 			row = &skill{name: name, path: dir, locations: []location{{"Agents", dir}}}
 			rows = append(rows, row)
 		}
-		row.checkout = ""
+		row.checkout, row.manager = "", skillsLock
+		if ambiguous {
+			row.mark(skipped, "Ambiguous shared lock")
+			continue
+		}
 		installs = append(installs, lockedInstall{row, name, dir})
 	}
 	return rows, installs
@@ -108,13 +130,13 @@ func scan(ctx context.Context, cfg config, apply bool, selection skillSelection)
 		return nil, err
 	}
 	rows, installs := catalog(cfg, lock, rows, byLocation)
+	allRows := rows
 	var checkoutLimit string
 	if selection.name != "" {
 		row, err := selection.resolve(rows)
 		if err != nil {
 			return nil, err
 		}
-		allRows := rows
 		rows = []*skill{row}
 		installs = slices.DeleteFunc(installs, func(install lockedInstall) bool { return install.row != row })
 		if apply {
@@ -147,10 +169,10 @@ func scan(ctx context.Context, cfg config, apply bool, selection skillSelection)
 			return rows, err
 		}
 	}
-	return inspectSources(ctx, lock, rows, installs, apply, checkoutLimit)
+	return inspectSources(ctx, lock, rows, allRows, installs, apply, checkoutLimit)
 }
 
-func inspectSources(ctx context.Context, lock *globalLock, rows []*skill, installs []lockedInstall, apply bool, checkoutLimit string) ([]*skill, error) {
+func inspectSources(ctx context.Context, lock *globalLock, rows, allRows []*skill, installs []lockedInstall, apply bool, checkoutLimit string) ([]*skill, error) {
 	cache := sourceCache{repos: map[string]gitSource{}}
 	defer func() {
 		if cache.dir != "" {
@@ -164,6 +186,12 @@ func inspectSources(ctx context.Context, lock *globalLock, rows []*skill, instal
 		inspectLocked(ctx, lock, &cache, install.row, install.dir, install.name, apply)
 	}
 
+	var managed []*skill
+	for _, row := range allRows {
+		if row.managedExternally() {
+			managed = append(managed, row)
+		}
+	}
 	checkouts := map[string]*skill{}
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
@@ -175,7 +203,11 @@ func inspectSources(ctx context.Context, lock *globalLock, rows []*skill, instal
 		info := checkouts[row.checkout]
 		if info == nil {
 			info = &skill{}
-			inspectCheckout(ctx, info, row.checkout, apply, checkoutLimit)
+			if len(managed) > 0 && len(scopeFor(row, managed).rows) > 1 {
+				info.mark(skipped, "Checkout contains a skill with a separate manager")
+			} else {
+				inspectCheckout(ctx, info, row.checkout, apply, checkoutLimit)
+			}
 			checkouts[row.checkout] = info
 		}
 		row.source, row.current, row.latest = info.source, info.current, info.latest
@@ -244,17 +276,14 @@ func inventory(ctx context.Context, cfg config) ([]*skill, map[string]*skill, er
 		if info, err := os.Stat(filepath.Join(real, "SKILL.md")); err == nil && info.Mode().IsRegular() {
 			row := byPath[real]
 			if row == nil {
-				row = &skill{name: filepath.Base(loc.path), path: real}
+				row = &skill{name: filepath.Base(loc.path), path: real, manager: "Unknown"}
 				row.mark(skipped, "No supported source recorded")
-				if _, err := os.Stat(filepath.Join(real, ".skild", "install.json")); err == nil {
-					row.source = "Skild"
-					row.detail = "Managed by Skild"
-				}
+				row.readInstallerMetadata()
 				byPath[real] = row
 				rows = append(rows, row)
 			}
-			if row.checkout == "" && row.source != "Skild" {
-				row.checkout = checkout
+			if row.checkout == "" && checkout != "" && !row.managedExternally() {
+				row.checkout, row.manager = checkout, gitCheckout
 			}
 			row.locations = append(row.locations, loc)
 			byLocation[loc.path] = row

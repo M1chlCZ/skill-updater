@@ -76,6 +76,9 @@ func run() int {
 		if row.source != "" {
 			fmt.Printf(" | %s", printable(row.source))
 		}
+		if row.manager != "" {
+			fmt.Printf(" | Manager %s", row.manager)
+		}
 		for _, loc := range row.locations {
 			fmt.Printf(" | %s %s", loc.label, printable(loc.path))
 		}

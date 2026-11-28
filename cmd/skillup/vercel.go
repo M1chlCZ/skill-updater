@@ -61,7 +61,7 @@ func (l *globalLock) unchanged() error {
 }
 
 type lockEntry struct {
-	Source, SourceType, SkillPath, SkillFolderHash, Ref, PinnedRef, InstallMode string
+	Source, SourceType, SourceURL, SkillPath, SkillFolderHash, Ref, PinnedRef, InstallMode string
 }
 
 var repoName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*$`)
@@ -132,8 +132,9 @@ func inspectLocked(ctx context.Context, lock *globalLock, cache *sourceCache, ro
 			return
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".skild", "install.json")); err == nil {
-		row.mark(skipped, "Managed by Skild")
+	// The installation may have changed since the inventory was read.
+	row.readInstallerMetadata()
+	if row.managedExternally() {
 		return
 	}
 	repo, err := cache.fetch(ctx, entry.Source)
