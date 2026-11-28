@@ -61,7 +61,14 @@ func (l *globalLock) unchanged() error {
 }
 
 type lockEntry struct {
-	Source, SourceType, SourceURL, SkillPath, SkillFolderHash, Ref, PinnedRef, InstallMode string
+	Source          string `json:"source,omitempty"`
+	SourceType      string `json:"sourceType,omitempty"`
+	SourceURL       string `json:"sourceURL,omitempty"`
+	SkillPath       string `json:"skillPath,omitempty"`
+	SkillFolderHash string `json:"skillFolderHash,omitempty"`
+	Ref             string `json:"ref,omitempty"`
+	PinnedRef       string `json:"pinnedRef,omitempty"`
+	InstallMode     string `json:"installMode,omitempty"`
 }
 
 var repoName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*$`)

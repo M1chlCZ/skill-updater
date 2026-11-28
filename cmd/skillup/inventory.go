@@ -62,6 +62,7 @@ func envPath(key, home, fallback string) string {
 type lockedInstall struct {
 	row       *skill
 	name, dir string
+	lock      *globalLock
 }
 
 func catalog(cfg config, lock *globalLock, rows []*skill, byLocation map[string]*skill) ([]*skill, []lockedInstall) {
@@ -108,7 +109,7 @@ func catalog(cfg config, lock *globalLock, rows []*skill, byLocation map[string]
 			row.mark(skipped, "Ambiguous shared lock")
 			continue
 		}
-		installs = append(installs, lockedInstall{row, name, dir})
+		installs = append(installs, lockedInstall{row, name, dir, lock})
 	}
 	return rows, installs
 }
@@ -129,7 +130,10 @@ func scan(ctx context.Context, cfg config, apply bool, selection skillSelection)
 	if err != nil {
 		return nil, err
 	}
-	rows, installs := catalog(cfg, lock, rows, byLocation)
+	rows, installs, err := catalogSources(cfg, lock, rows, byLocation)
+	if err != nil {
+		return nil, err
+	}
 	allRows := rows
 	var checkoutLimit string
 	if selection.name != "" {
@@ -169,10 +173,10 @@ func scan(ctx context.Context, cfg config, apply bool, selection skillSelection)
 			return rows, err
 		}
 	}
-	return inspectSources(ctx, lock, rows, allRows, installs, apply, checkoutLimit)
+	return inspectSources(ctx, rows, allRows, installs, apply, checkoutLimit)
 }
 
-func inspectSources(ctx context.Context, lock *globalLock, rows, allRows []*skill, installs []lockedInstall, apply bool, checkoutLimit string) ([]*skill, error) {
+func inspectSources(ctx context.Context, rows, allRows []*skill, installs []lockedInstall, apply bool, checkoutLimit string) ([]*skill, error) {
 	cache := sourceCache{repos: map[string]gitSource{}}
 	defer func() {
 		if cache.dir != "" {
@@ -183,7 +187,7 @@ func inspectSources(ctx context.Context, lock *globalLock, rows, allRows []*skil
 		if err := ctx.Err(); err != nil {
 			return rows, err
 		}
-		inspectLocked(ctx, lock, &cache, install.row, install.dir, install.name, apply)
+		inspectLocked(ctx, install.lock, &cache, install.row, install.dir, install.name, apply)
 	}
 
 	var managed []*skill

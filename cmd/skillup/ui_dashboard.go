@@ -14,6 +14,8 @@ func (m screen) content() string {
 	switch {
 	case m.confirm:
 		return m.confirmationView()
+	case m.panel == menuPanel || m.panel == sourcePanel:
+		return m.popupView()
 	case m.panel == commandPanel:
 		return m.commandsView()
 	case m.panel == skillPanel || m.panel == helpPanel:
@@ -56,6 +58,14 @@ func (m screen) dashboardView() string {
 
 	room := max(0, height-len(header)-1)
 	body := m.dashboardBody(rows, width, room)
+	if m.busy {
+		for i, line := range body {
+			if strings.HasPrefix(ansi.Strip(line), "› ") {
+				body[i] = m.activityCursor() + ansi.Cut(line, 1, width)
+				break
+			}
+		}
+	}
 	if len(body) < room {
 		body = append(body, make([]string, room-len(body))...)
 	}
@@ -155,6 +165,9 @@ func (m screen) dashboardKeys(hasSkills bool, width int) string {
 }
 
 func (m screen) activityLine() string {
+	if m.pairing {
+		return m.activity.View() + " Verifying repository matches…"
+	}
 	if m.applying {
 		label := "Applying updates…"
 		if scope := m.selection.approved; scope != nil {
@@ -202,7 +215,7 @@ func (m screen) dashboardBody(rows []*skill, width, room int) []string {
 		detailWidth := width - listWidth - 3
 		preview := []string{panelTitle(printable(row.name)), statusBadge(row.status, false)}
 		preview = append(preview, wrapLines(details, detailWidth)...)
-		preview = append(preview, "", accent("Enter  View actions and details"))
+		preview = append(preview, "", accent("Enter  Open skill menu"))
 		lines := make([]string, min(room, max(len(list), len(preview))))
 		for i := range lines {
 			left, right := "", ""
@@ -354,4 +367,8 @@ func muted(text string) string {
 
 func highlighted(text string) string {
 	return styled(text, lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("23")).Bold(true))
+}
+
+func (m screen) activityCursor() string {
+	return accent(strings.TrimSpace(ansi.Strip(m.activity.View())))
 }

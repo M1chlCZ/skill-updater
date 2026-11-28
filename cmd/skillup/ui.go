@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -31,6 +32,9 @@ type screen struct {
 	panelScroll             int
 	commandSearch           textinput.Model
 	commandIndex            int
+	menuIndex               int
+	sourceInput             textinput.Model
+	pairing                 bool
 }
 
 type scanResult struct {
@@ -66,8 +70,11 @@ func (m screen) check(local inventoryResult) tea.Cmd {
 		if err != nil {
 			return scanResult{local.rows, err}
 		}
-		rows, installs := catalog(m.cfg, lock, local.rows, local.byLocation)
-		rows, err = inspectSources(m.ctx, lock, rows, rows, installs, false, "")
+		rows, installs, err := catalogSources(m.cfg, lock, local.rows, local.byLocation)
+		if err != nil {
+			return scanResult{local.rows, err}
+		}
+		rows, err = inspectSources(m.ctx, rows, rows, installs, false, "")
 		return scanResult{rows, err}
 	}
 }
@@ -143,7 +150,7 @@ func (m *screen) setRows(rows []*skill) {
 	}
 	m.rows = rows
 	m.keepSelection()
-	if m.panel == skillPanel && (m.selected == nil || selected == nil ||
+	if (m.panel == skillPanel || m.panel == menuPanel || m.panel == sourcePanel) && (m.selected == nil || selected == nil ||
 		m.selected.path != selected.path || m.selected.name != selected.name) {
 		m.panel = dashboardPanel
 	}
@@ -214,6 +221,22 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			view := m.panelViewport()
 			m.panelScroll = view.YOffset()
 		}
+	case pairResult:
+		if m.ctx.Err() != nil {
+			return m, tea.Quit
+		}
+		m.pairing, m.busy = false, false
+		if msg.err != nil {
+			m.err = msg.err
+			m.panel = sourcePanel
+			return m, m.sourceInput.Focus()
+		}
+		next, cmd := m.start(false)
+		next.notice = fmt.Sprintf("Linked %d skills to %s", msg.count, msg.source)
+		if msg.count == 1 {
+			next.notice = "Linked 1 skill to " + msg.source
+		}
+		return next, cmd
 	case spinner.TickMsg:
 		if m.busy {
 			var cmd tea.Cmd
@@ -241,6 +264,15 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.finish(msg)
 	case tea.KeyPressMsg:
 		key := msg.String()
+		if m.pairing {
+			if key == "ctrl+c" {
+				m.cancel()
+			}
+			return m, nil
+		}
+		if m.panel == sourcePanel && key != "ctrl+c" {
+			return m.handleSource(msg)
+		}
 		if m.confirm {
 			return m.handleConfirmation(msg)
 		}
@@ -305,7 +337,7 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.autoSelect = false
 				m.keepSelection()
 				if m.selected != nil {
-					m.panel, m.panelScroll = skillPanel, 0
+					m.panel, m.menuIndex = menuPanel, 0
 				}
 			}
 		case "?":
@@ -333,6 +365,11 @@ func (m screen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.beginAllUpdates()
 		}
 	default:
+		if m.panel == sourcePanel && !m.pairing {
+			var cmd tea.Cmd
+			m.sourceInput, cmd = m.sourceInput.Update(msg)
+			return m, cmd
+		}
 		if m.panel == commandPanel {
 			return m.editCommands(msg)
 		}

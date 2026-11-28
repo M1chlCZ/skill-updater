@@ -7,7 +7,7 @@
 Run `skillup` to see which AI agent skills you have, where they live, and
 which ones have updates. Skillup is written in Go and checks the source with Git.
 
-![Skillup dashboard with available updates and the selected skill](docs/dashboard.png)
+![Skillup dashboard with an action menu beside the selected skill](docs/dashboard.png)
 
 ## Install
 
@@ -21,7 +21,7 @@ skillup
 You can also build it with Go 1.25 or newer. Keep Git on your PATH.
 
 ```sh
-go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.6.1
+go install github.com/M1chlCZ/skill-updater/cmd/skillup@v0.6.2
 skillup
 ```
 
@@ -40,8 +40,7 @@ work on Linux, including in WSL.
 | `skillup --check --skill demo` | Checks the installation named exactly `demo`. |
 | `skillup --apply --skill demo` | Applies an eligible update to that installation. |
 
-Move with **↑/↓** and press **Enter** to open the selected skill's actions
-and details. When an update is available, **Enter** opens the confirmation.
+Move with **↑/↓** and press **Enter** to open a small menu beside the selected row. Choose **View details** for the full installation record. When an update is available, **Enter** opens the confirmation.
 Press **Enter** again to apply a single-folder update. Press **y** to confirm
 an update to a Git checkout or all eligible skills. **Esc** goes back.
 
@@ -79,8 +78,9 @@ overlaps a separate installation outside its scope.
 
 Skillup looks in `~/.agents/skills`, `$CODEX_HOME/skills` (default
 `~/.codex/skills`), and `$CLAUDE_CONFIG_DIR/skills` (default
-`~/.claude/skills`). It updates two kinds of installs.
+`~/.claude/skills`). It supports these installations.
 
+- Skills you link yourself. On an untracked skill, press **Enter → Link GitHub source**, paste a GitHub repository URL or `owner/repository`, then press **Enter**. Skillup checks all untracked installations for unique matching folder names and verifies their files against the repository, including older revisions. Linking saves verified matches in `~/.skillup/sources.json`. Updates are a separate action.
 - Global GitHub installs from Vercel's `skills` CLI. Skillup reads the
   version 3 lock at `~/.agents/.skill-lock.json` or
   `$XDG_STATE_HOME/skills/.skill-lock.json`. It checks the installed files

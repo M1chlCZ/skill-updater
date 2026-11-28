@@ -208,7 +208,7 @@ func TestScreenShowsInventoryBeforeSourceCheck(t *testing.T) {
 	next, _ = next.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	next, _ = next.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	next, _ = next.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	if view := next.View().Content; !strings.Contains(view, "› demo") {
+	if view := next.View().Content; !strings.Contains(view, next.(screen).activityCursor()+" demo") {
 		t.Fatalf("inventory should be navigable during the check:\n%s", view)
 	}
 	next, _ = next.Update(check())
@@ -315,7 +315,7 @@ func TestEnterOpensActionsAndConfirmsUpdate(t *testing.T) {
 		t.Fatalf("dashboard should advertise Enter: %s", view)
 	}
 	if cmd := press(tea.KeyEnter); cmd != nil || m.confirm || m.applying ||
-		!strings.Contains(m.View().Content, "Enter Update skill") {
+		!strings.Contains(m.View().Content, "› Update skill") {
 		t.Fatalf("first Enter must show the skill's action: %s", m.View().Content)
 	}
 	if cmd := press(tea.KeyEnter); cmd != nil || !m.confirm || m.applying {
@@ -327,7 +327,7 @@ func TestEnterOpensActionsAndConfirmsUpdate(t *testing.T) {
 		}
 	}
 	press(tea.KeyEscape)
-	if m.confirm || !strings.Contains(m.View().Content, "Enter Update skill") {
+	if m.confirm || !strings.Contains(m.View().Content, "› Update skill") {
 		t.Fatal("cancel should return to the skill actions")
 	}
 	press(tea.KeyEscape)
@@ -360,8 +360,12 @@ func TestSkillActionsScrollAndExplainUnavailableUpdate(t *testing.T) {
 	var m tea.Model = screen{rows: []*skill{row}, selected: row, search: newSearch()}
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 32, Height: 9})
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if v := m.View().Content; !strings.Contains(v, "› managed") || !strings.Contains(v, "› View details") {
+		t.Fatalf("menu lost dashboard or selected row: %s", v)
+	}
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	view := m.View().Content
-	if !strings.Contains(view, "Reason  Use skild update") || strings.Contains(view, "Enter Update skill") {
+	if !strings.Contains(view, "Reason  Use skild update") || strings.Contains(view, "› Update skill") {
 		t.Fatalf("managed skill should explain why update is unavailable:\n%s", view)
 	}
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnd})

@@ -113,7 +113,7 @@ func matchFiles(dir string, expected map[string]treeFile) error {
 }
 
 func updateSkill(ctx context.Context, lock *globalLock, repo, dest, name, tree, commit string, old, files map[string]treeFile) error {
-	stage, err := os.MkdirTemp(filepath.Dir(filepath.Dir(dest)), ".skillup-"+name+"-")
+	stage, err := os.MkdirTemp(filepath.Dir(filepath.Dir(dest)), ".skillup-"+filepath.Base(dest)+"-")
 	if err != nil {
 		return err
 	}

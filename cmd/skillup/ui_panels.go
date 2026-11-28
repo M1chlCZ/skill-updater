@@ -19,6 +19,8 @@ const (
 	skillPanel
 	commandPanel
 	helpPanel
+	menuPanel
+	sourcePanel
 	panelMaxWidth = 74
 )
 
@@ -120,6 +122,9 @@ func (m screen) handlePanel(msg tea.KeyPressMsg) (screen, tea.Cmd) {
 			m.panel = dashboardPanel
 		}
 		return m, nil
+	}
+	if m.panel == menuPanel {
+		return m.handleMenu(msg)
 	}
 	if m.panel == commandPanel {
 		commands := m.commands()
